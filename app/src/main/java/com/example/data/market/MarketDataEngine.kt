@@ -1,430 +1,193 @@
 package com.example.data.market
 
+import com.example.domain.trading.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import java.util.UUID
-import kotlin.math.*
 import kotlin.random.Random
 
-class MarketDataEngine(
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-) {
-    // Tick speed in milliseconds (default 500ms for active day trading feel)
-    private val _tickSpeedMs = MutableStateFlow<Long>(600L)
-    val tickSpeedMs: StateFlow<Long> = _tickSpeedMs.asStateFlow()
+class MarketDataEngine {
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
+    private val _instruments = MutableStateFlow<List<Instrument>>(emptyList())
+    val instruments: StateFlow<List<Instrument>> = _instruments.asStateFlow()
+
+    private val _selectedSymbol = MutableStateFlow("NVDA")
+    val selectedSymbol: StateFlow<String> = _selectedSymbol.asStateFlow()
+
+    private val _candleHistory = MutableStateFlow<Map<String, Map<TimeFrame, List<CandleStick>>>>(emptyMap())
+    val candleHistory: StateFlow<Map<String, Map<TimeFrame, List<CandleStick>>>> = _candleHistory.asStateFlow()
+
+    private val _orderBook = MutableStateFlow(OrderBookDepth(emptyList(), emptyList(), 0.0))
+    val orderBook: StateFlow<OrderBookDepth> = _orderBook.asStateFlow()
+
+    private val _recentTrades = MutableStateFlow<List<TapeTrade>>(emptyList())
+    val recentTrades: StateFlow<List<TapeTrade>> = _recentTrades.asStateFlow()
 
     private val _isStreaming = MutableStateFlow(true)
     val isStreaming: StateFlow<Boolean> = _isStreaming.asStateFlow()
 
-    // Real-time Quotes map (Symbol -> Quote)
-    private val _quotes = MutableStateFlow<Map<String, Quote>>(emptyMap())
-    val quotes: StateFlow<Map<String, Quote>> = _quotes.asStateFlow()
-
-    // Multi-timeframe Candles (Symbol -> (TimeFrame -> List<CandleStick>))
-    private val _candles = MutableStateFlow<Map<String, Map<TimeFrame, List<CandleStick>>>>(emptyMap())
-    val candles: StateFlow<Map<String, Map<TimeFrame, List<CandleStick>>>> = _candles.asStateFlow()
-
-    // Order Books (Symbol -> OrderBook)
-    private val _orderBooks = MutableStateFlow<Map<String, OrderBook>>(emptyMap())
-    val orderBooks: StateFlow<Map<String, OrderBook>> = _orderBooks.asStateFlow()
-
-    // Trade Tape live stream
-    private val _tradeTape = MutableSharedFlow<TradeTapeItem>(extraBufferCapacity = 64)
-    val tradeTape: SharedFlow<TradeTapeItem> = _tradeTape.asSharedFlow()
-
-    // Technical Signals Stream
-    private val _signals = MutableStateFlow<List<TechnicalSignal>>(emptyList())
-    val signals: StateFlow<List<TechnicalSignal>> = _signals.asStateFlow()
-
-    private var tickJob: Job? = null
-
-    // Base asset definitions
-    data class AssetConfig(
-        val symbol: String,
-        val name: String,
-        val basePrice: Double,
-        val volatility: Double, // annual or per-tick variance
-        val assetType: AssetType
-    )
-
-    private val assetConfigs = listOf(
-        AssetConfig("NVDA", "NVIDIA Corporation", 128.45, 0.0035, AssetType.STOCK),
-        AssetConfig("TSLA", "Tesla Inc.", 218.80, 0.0050, AssetType.STOCK),
-        AssetConfig("AAPL", "Apple Inc.", 224.50, 0.0020, AssetType.STOCK),
-        AssetConfig("AMD", "Advanced Micro Devices", 154.20, 0.0038, AssetType.STOCK),
-        AssetConfig("BTC/USD", "Bitcoin USD", 64250.00, 0.0040, AssetType.CRYPTO),
-        AssetConfig("ETH/USD", "Ethereum USD", 3450.00, 0.0045, AssetType.CRYPTO),
-        AssetConfig("SPY", "SPDR S&P 500 ETF", 558.90, 0.0015, AssetType.INDEX),
-        AssetConfig("QQQ", "Invesco QQQ Trust", 482.30, 0.0022, AssetType.INDEX),
-        AssetConfig("PLTR", "Palantir Technologies", 32.40, 0.0055, AssetType.STOCK),
-        AssetConfig("COIN", "Coinbase Global Inc.", 215.10, 0.0060, AssetType.STOCK),
-        AssetConfig("MSFT", "Microsoft Corp.", 422.10, 0.0018, AssetType.STOCK),
-        AssetConfig("AMZN", "Amazon.com Inc.", 178.60, 0.0025, AssetType.STOCK)
-    )
-
     init {
-        initializeHistoricalData()
-        startStreaming()
+        initializeMarkets()
+        startDataStream()
     }
 
-    private fun initializeHistoricalData() {
-        val initialQuotes = mutableMapOf<String, Quote>()
-        val initialCandles = mutableMapOf<String, MutableMap<TimeFrame, List<CandleStick>>>()
-        val initialOrderBooks = mutableMapOf<String, OrderBook>()
+    private fun initializeMarkets() {
+        val initialList = listOf(
+            Instrument("NVDA", "NVIDIA Corporation", "STOCKS", 124.80, 3.25, 128.5, 121.0, 4850000000.0),
+            Instrument("AAPL", "Apple Inc.", "STOCKS", 228.40, 1.15, 231.2, 226.0, 3100000000.0),
+            Instrument("TSLA", "Tesla Inc.", "STOCKS", 218.60, -2.10, 225.0, 214.0, 2900000000.0),
+            Instrument("MSFT", "Microsoft Corp.", "STOCKS", 448.50, 0.85, 452.0, 444.0, 2200000000.0),
+            Instrument("AMZN", "Amazon.com Inc.", "STOCKS", 178.20, 1.95, 181.0, 175.5, 2150000000.0),
+            Instrument("BTC/USDT", "Bitcoin Spot", "CRYPTO", 64450.00, 2.80, 65800.0, 63100.0, 19800000000.0),
+            Instrument("ETH/USDT", "Ethereum Spot", "CRYPTO", 3490.00, 1.90, 3560.0, 3410.0, 8900000000.0),
+            Instrument("SOL/USDT", "Solana", "CRYPTO", 146.50, 6.20, 154.0, 137.5, 3400000000.0)
+        ).map { item ->
+            val spark = (0..15).map { i ->
+                item.currentPrice * (1.0 + Math.sin(i * 0.45) * 0.018)
+            }
+            item.copy(sparkline = spark)
+        }
+        _instruments.value = initialList
 
-        val now = System.currentTimeMillis()
-
-        for (config in assetConfigs) {
-            val symbol = config.symbol
-            val base = config.basePrice
-
-            // Generate initial candles for 1m, 5m, 15m, 1h, 1D
-            val timeframeCandles = mutableMapOf<TimeFrame, List<CandleStick>>()
+        // Generate initial candles
+        val historyMap = mutableMapOf<String, Map<TimeFrame, List<CandleStick>>>()
+        for (inst in initialList) {
+            val tfMap = mutableMapOf<TimeFrame, List<CandleStick>>()
             for (tf in TimeFrame.values()) {
-                val count = 25
-                val candleList = mutableListOf<CandleStick>()
-                var currentClose = base * (1.0 + (Random.nextDouble(-0.02, 0.02)))
-                val periodMs = tf.seconds * 1000L
-
-                for (i in count downTo 0) {
-                    val time = now - (i * periodMs)
-                    val change = currentClose * Random.nextDouble(-config.volatility * 2, config.volatility * 2)
-                    val open = currentClose
-                    val close = max(0.01, open + change)
-                    val high = max(open, close) + abs(change * Random.nextDouble(0.2, 0.8))
-                    val low = min(open, close) - abs(change * Random.nextDouble(0.2, 0.8))
-                    val vol = Random.nextDouble(1000.0, 50000.0) * if (config.assetType == AssetType.CRYPTO) 0.5 else 1.0
-
-                    candleList.add(CandleStick(time, round2(open), round2(high), round2(low), round2(close), round2(vol)))
-                    currentClose = close
+                var price = inst.currentPrice * 0.97
+                val list = mutableListOf<CandleStick>()
+                val now = System.currentTimeMillis()
+                for (i in 25 downTo 0) {
+                    val time = now - (i * tf.seconds * 1000L)
+                    val delta = price * Random.nextDouble(-0.012, 0.015)
+                    val open = price
+                    val close = price + delta
+                    val high = maxOf(open, close) + price * Random.nextDouble(0.001, 0.006)
+                    val low = minOf(open, close) - price * Random.nextDouble(0.001, 0.006)
+                    val vol = Random.nextDouble(10.0, 500.0) * (inst.volume24h / 100000000.0)
+                    list.add(CandleStick(time, open, high, low, close, vol))
+                    price = close
                 }
-                timeframeCandles[tf] = candleList
+                tfMap[tf] = list
             }
-            initialCandles[symbol] = timeframeCandles
+            historyMap[inst.symbol] = tfMap
+        }
+        _candleHistory.value = historyMap
+        updateOrderBookAndTrades("NVDA", 124.80)
+    }
 
-            val m1List = timeframeCandles[TimeFrame.M1] ?: emptyList()
-            val lastClose = m1List.lastOrNull()?.close ?: base
-            val prevClose = m1List.firstOrNull()?.open ?: (base * 0.98)
-            val closes = m1List.map { it.close }
+    private fun startDataStream() {
+        scope.launch {
+            while (isActive) {
+                if (_isStreaming.value) {
+                    simulateTick()
+                }
+                delay(800L)
+            }
+        }
+    }
 
-            val rsi = TechnicalIndicators.calculateRSI(closes)
-            val ema9 = TechnicalIndicators.calculateEMA(closes, 9)
-            val ema21 = TechnicalIndicators.calculateEMA(closes, 21)
-            val ema50 = TechnicalIndicators.calculateEMA(closes, 50)
-            val (upper, mid, lower) = TechnicalIndicators.calculateBollingerBands(closes)
-            val (macd, signal, hist) = TechnicalIndicators.calculateMACD(closes)
-            val vwap = TechnicalIndicators.calculateVWAP(m1List)
-
-            val spread = max(0.01, lastClose * 0.0003)
-            val bid = round2(lastClose - spread / 2)
-            val ask = round2(lastClose + spread / 2)
-
-            val quote = Quote(
-                symbol = symbol,
-                name = config.name,
-                price = lastClose,
-                previousClose = round2(prevClose),
-                open = m1List.firstOrNull()?.open ?: lastClose,
-                high = m1List.maxOfOrNull { it.high } ?: lastClose,
-                low = m1List.minOfOrNull { it.low } ?: lastClose,
-                volume = (m1List.sumOf { it.volume }).toLong(),
-                avgVolume = 15400000L,
-                bid = bid,
-                ask = ask,
-                bidSize = Random.nextDouble(100.0, 2500.0),
-                askSize = Random.nextDouble(100.0, 2500.0),
-                vwap = round2(vwap),
-                rsi14 = round2(rsi),
-                ema9 = round2(ema9),
-                ema21 = round2(ema21),
-                ema50 = round2(ema50),
-                upperBollinger = round2(upper),
-                lowerBollinger = round2(lower),
-                middleBollinger = round2(mid),
-                macdLine = round2(macd),
-                macdSignal = round2(signal),
-                macdHistogram = round2(hist),
-                assetType = config.assetType,
-                sparkline = closes.takeLast(15)
+    private fun simulateTick() {
+        val updated = _instruments.value.map { inst ->
+            // Random fluctuation between -0.35% and +0.38%
+            val pctDelta = Random.nextDouble(-0.0035, 0.0038)
+            val newPrice = (inst.currentPrice * (1.0 + pctDelta)).coerceAtLeast(0.01)
+            val newHigh = maxOf(inst.high24h, newPrice)
+            val newLow = minOf(inst.low24h, newPrice)
+            val newSpark = inst.sparkline.drop(1) + listOf(newPrice)
+            inst.copy(
+                currentPrice = newPrice,
+                change24h = inst.change24h + (pctDelta * 8),
+                high24h = newHigh,
+                low24h = newLow,
+                sparkline = newSpark
             )
-            initialQuotes[symbol] = quote
-            initialOrderBooks[symbol] = generateOrderBook(symbol, quote.price, quote.assetType)
         }
+        _instruments.value = updated
 
-        _quotes.value = initialQuotes
-        _candles.value = initialCandles
-        _orderBooks.value = initialOrderBooks
-        generateInitialSignals(initialQuotes)
+        val activeSym = _selectedSymbol.value
+        val activeInst = updated.find { it.symbol == activeSym }
+        if (activeInst != null) {
+            updateOrderBookAndTrades(activeInst.symbol, activeInst.currentPrice)
+            updateLiveCandle(activeInst.symbol, activeInst.currentPrice)
+        }
     }
 
-    private fun generateInitialSignals(quotes: Map<String, Quote>) {
-        val signalsList = mutableListOf<TechnicalSignal>()
-        quotes.values.forEach { q ->
-            if (q.rsi14 <= 32.0) {
-                signalsList.add(
-                    TechnicalSignal(
-                        id = UUID.randomUUID().toString(),
-                        symbol = q.symbol,
-                        type = SignalType.RSI_OVERSOLD,
-                        price = q.price,
-                        confidence = 88,
-                        description = "${q.symbol} RSI reached ${q.rsi14.toInt()} — oversold reversal zone on 1M/5M timeframe."
-                    )
-                )
-            } else if (q.rsi14 >= 68.0) {
-                signalsList.add(
-                    TechnicalSignal(
-                        id = UUID.randomUUID().toString(),
-                        symbol = q.symbol,
-                        type = SignalType.RSI_OVERBOUGHT,
-                        price = q.price,
-                        confidence = 82,
-                        description = "${q.symbol} RSI reached ${q.rsi14.toInt()} — overbought momentum extension."
-                    )
-                )
-            }
-            if (q.macdHistogram > 0.1 && q.macdLine > q.macdSignal) {
-                signalsList.add(
-                    TechnicalSignal(
-                        id = UUID.randomUUID().toString(),
-                        symbol = q.symbol,
-                        type = SignalType.MACD_BULLISH_CROSS,
-                        price = q.price,
-                        confidence = 91,
-                        description = "Bullish MACD crossover triggered on ${q.symbol}. Buying pressure increasing."
-                    )
-                )
-            }
+    private fun updateOrderBookAndTrades(symbol: String, price: Double) {
+        val spread = price * 0.0004
+        var bidAccum = 0.0
+        val bids = (1..5).map { i ->
+            val p = price - (spread * i)
+            val size = Random.nextDouble(10.0, 200.0)
+            bidAccum += size
+            OrderBookLevel(p, size, bidAccum)
         }
-        _signals.value = signalsList.take(6)
+
+        var askAccum = 0.0
+        val asks = (1..5).map { i ->
+            val p = price + (spread * i)
+            val size = Random.nextDouble(10.0, 200.0)
+            askAccum += size
+            OrderBookLevel(p, size, askAccum)
+        }
+        _orderBook.value = OrderBookDepth(bids, asks, spread)
+
+        // New trade
+        val side = if (Random.nextBoolean()) OrderSide.BUY else OrderSide.SELL
+        val tradePrice = if (side == OrderSide.BUY) asks.first().price else bids.first().price
+        val trade = TapeTrade(
+            id = System.currentTimeMillis().toString(),
+            time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()),
+            price = tradePrice,
+            size = Random.nextDouble(5.0, 100.0),
+            side = side
+        )
+        _recentTrades.value = (listOf(trade) + _recentTrades.value).take(12)
     }
 
-    fun setTickSpeed(speedMs: Long) {
-        _tickSpeedMs.value = speedMs.coerceAtLeast(100L)
+    private fun updateLiveCandle(symbol: String, currentPrice: Double) {
+        val history = _candleHistory.value.toMutableMap()
+        val symbolCandles = history[symbol]?.toMutableMap() ?: return
+
+        for (tf in TimeFrame.values()) {
+            val list = (symbolCandles[tf] ?: emptyList()).toMutableList()
+            if (list.isNotEmpty()) {
+                val last = list.last()
+                val updatedLast = last.copy(
+                    high = maxOf(last.high, currentPrice),
+                    low = minOf(last.low, currentPrice),
+                    close = currentPrice,
+                    volume = last.volume + Random.nextDouble(1.0, 20.0)
+                )
+                list[list.lastIndex] = updatedLast
+                symbolCandles[tf] = list
+            }
+        }
+        history[symbol] = symbolCandles
+        _candleHistory.value = history
+    }
+
+    fun selectSymbol(symbol: String) {
+        _selectedSymbol.value = symbol
+        val inst = _instruments.value.find { it.symbol == symbol }
+        if (inst != null) {
+            updateOrderBookAndTrades(symbol, inst.currentPrice)
+        }
+    }
+
+    fun setPriceForTesting(symbol: String, newPrice: Double) {
+        _instruments.value = _instruments.value.map { inst ->
+            if (inst.symbol == symbol) {
+                inst.copy(
+                    currentPrice = newPrice,
+                    high24h = maxOf(inst.high24h, newPrice),
+                    low24h = minOf(inst.low24h, newPrice)
+                )
+            } else inst
+        }
     }
 
     fun toggleStreaming() {
-        if (_isStreaming.value) {
-            pauseStreaming()
-        } else {
-            startStreaming()
-        }
+        _isStreaming.value = !_isStreaming.value
     }
-
-    fun pauseStreaming() {
-        _isStreaming.value = false
-        tickJob?.cancel()
-        tickJob = null
-    }
-
-    fun startStreaming() {
-        _isStreaming.value = true
-        tickJob?.cancel()
-        tickJob = scope.launch {
-            while (isActive) {
-                val delayMs = _tickSpeedMs.value
-                delay(delayMs)
-                if (_isStreaming.value) {
-                    processTick()
-                }
-            }
-        }
-    }
-
-    private suspend fun processTick() {
-        val currentQuotes = _quotes.value.toMutableMap()
-        val currentCandles = _candles.value.toMutableMap()
-        val currentOrderBooks = _orderBooks.value.toMutableMap()
-        val now = System.currentTimeMillis()
-
-        // Pick 2-4 active symbols each tick for hyper-realistic trading tape activity
-        val symbolsToUpdate = assetConfigs.shuffled().take(Random.nextInt(2, 5))
-
-        for (config in symbolsToUpdate) {
-            val symbol = config.symbol
-            val quote = currentQuotes[symbol] ?: continue
-
-            // Brownian drift + occasional jump
-            val isJump = Random.nextDouble() < 0.08
-            val jumpMultiplier = if (isJump) Random.nextDouble(1.8, 3.5) else 1.0
-            val deltaPct = Random.nextDouble(-config.volatility, config.volatility) * jumpMultiplier
-            val newPrice = max(0.01, round2(quote.price * (1.0 + deltaPct)))
-
-            // Update trade tape
-            val isBuy = newPrice >= quote.price
-            val tradeSize = if (config.assetType == AssetType.CRYPTO) {
-                round2(Random.nextDouble(0.05, 4.2))
-            } else {
-                (Random.nextInt(1, 35) * 10).toDouble()
-            }
-
-            val tapeItem = TradeTapeItem(
-                id = UUID.randomUUID().toString().take(8),
-                symbol = symbol,
-                price = newPrice,
-                size = tradeSize,
-                isBuyerMaker = isBuy,
-                timestamp = now
-            )
-            _tradeTape.emit(tapeItem)
-
-            // Update candle sticks
-            val symbolCandles = currentCandles[symbol]?.toMutableMap() ?: mutableMapOf()
-            val m1Candles = symbolCandles[TimeFrame.M1]?.toMutableList() ?: mutableListOf()
-
-            if (m1Candles.isNotEmpty()) {
-                val lastCandle = m1Candles.last()
-                val candleAge = now - lastCandle.timestamp
-                val periodMs = 60 * 1000L
-
-                if (candleAge < periodMs) {
-                    // Update active candle
-                    val updatedCandle = lastCandle.copy(
-                        high = max(lastCandle.high, newPrice),
-                        low = min(lastCandle.low, newPrice),
-                        close = newPrice,
-                        volume = lastCandle.volume + tradeSize
-                    )
-                    m1Candles[m1Candles.lastIndex] = updatedCandle
-                } else {
-                    // Start new 1M candle
-                    val newCandle = CandleStick(
-                        timestamp = now,
-                        open = lastCandle.close,
-                        high = max(lastCandle.close, newPrice),
-                        low = min(lastCandle.close, newPrice),
-                        close = newPrice,
-                        volume = tradeSize
-                    )
-                    m1Candles.add(newCandle)
-                    if (m1Candles.size > 50) m1Candles.removeAt(0)
-                }
-                symbolCandles[TimeFrame.M1] = m1Candles
-            }
-            currentCandles[symbol] = symbolCandles
-
-            // Recalculate indicators
-            val closes = (symbolCandles[TimeFrame.M1] ?: emptyList()).map { it.close }
-            val rsi = TechnicalIndicators.calculateRSI(closes)
-            val ema9 = TechnicalIndicators.calculateEMA(closes, 9)
-            val ema21 = TechnicalIndicators.calculateEMA(closes, 21)
-            val ema50 = TechnicalIndicators.calculateEMA(closes, 50)
-            val (upper, mid, lower) = TechnicalIndicators.calculateBollingerBands(closes)
-            val (macd, sig, hist) = TechnicalIndicators.calculateMACD(closes)
-            val vwap = TechnicalIndicators.calculateVWAP(symbolCandles[TimeFrame.M1] ?: emptyList())
-
-            val spread = max(0.01, newPrice * 0.0003)
-            val bid = round2(newPrice - spread / 2)
-            val ask = round2(newPrice + spread / 2)
-
-            val updatedQuote = quote.copy(
-                price = newPrice,
-                high = max(quote.high, newPrice),
-                low = min(quote.low, newPrice),
-                volume = quote.volume + tradeSize.toLong(),
-                bid = bid,
-                ask = ask,
-                bidSize = Random.nextDouble(50.0, 3000.0),
-                askSize = Random.nextDouble(50.0, 3000.0),
-                vwap = round2(vwap),
-                rsi14 = round2(rsi),
-                ema9 = round2(ema9),
-                ema21 = round2(ema21),
-                ema50 = round2(ema50),
-                upperBollinger = round2(upper),
-                lowerBollinger = round2(lower),
-                middleBollinger = round2(mid),
-                macdLine = round2(macd),
-                macdSignal = round2(sig),
-                macdHistogram = round2(hist),
-                sparkline = (quote.sparkline + newPrice).takeLast(15),
-                timestamp = now
-            )
-            currentQuotes[symbol] = updatedQuote
-            currentOrderBooks[symbol] = generateOrderBook(symbol, newPrice, config.assetType)
-
-            // Check for new technical signals
-            checkSignalTrigger(updatedQuote)
-        }
-
-        _quotes.value = currentQuotes
-        _candles.value = currentCandles
-        _orderBooks.value = currentOrderBooks
-    }
-
-    private fun checkSignalTrigger(quote: Quote) {
-        if (quote.rsi14 <= 28.0 && Random.nextDouble() < 0.15) {
-            val signal = TechnicalSignal(
-                id = UUID.randomUUID().toString(),
-                symbol = quote.symbol,
-                type = SignalType.RSI_OVERSOLD,
-                price = quote.price,
-                confidence = 89,
-                description = "${quote.symbol} extreme oversold RSI ${quote.rsi14.toInt()} — Strong day scalp bounce potential."
-            )
-            addNewSignal(signal)
-        } else if (quote.rsi14 >= 72.0 && Random.nextDouble() < 0.15) {
-            val signal = TechnicalSignal(
-                id = UUID.randomUUID().toString(),
-                symbol = quote.symbol,
-                type = SignalType.RSI_OVERBOUGHT,
-                price = quote.price,
-                confidence = 84,
-                description = "${quote.symbol} overbought RSI ${quote.rsi14.toInt()} near resistance."
-            )
-            addNewSignal(signal)
-        }
-    }
-
-    private fun addNewSignal(signal: TechnicalSignal) {
-        val existing = _signals.value.filter { it.symbol != signal.symbol || (System.currentTimeMillis() - it.timestamp) > 30000 }
-        _signals.value = (listOf(signal) + existing).take(8)
-    }
-
-    private fun generateOrderBook(symbol: String, price: Double, assetType: AssetType): OrderBook {
-        val levels = 8
-        val step = if (price > 1000) 1.5 else if (price > 100) 0.05 else 0.01
-
-        val bids = mutableListOf<OrderBookLevel>()
-        var bidTotal = 0.0
-        for (i in 1..levels) {
-            val lvlPrice = round2(price - (i * step))
-            val lvlSize = if (assetType == AssetType.CRYPTO) {
-                round2(Random.nextDouble(0.1, 5.0) * (levels - i + 1))
-            } else {
-                (Random.nextInt(5, 50) * 10).toDouble()
-            }
-            bidTotal += lvlSize
-            bids.add(OrderBookLevel(lvlPrice, lvlSize, bidTotal, 0f))
-        }
-
-        val asks = mutableListOf<OrderBookLevel>()
-        var askTotal = 0.0
-        for (i in 1..levels) {
-            val lvlPrice = round2(price + (i * step))
-            val lvlSize = if (assetType == AssetType.CRYPTO) {
-                round2(Random.nextDouble(0.1, 5.0) * (levels - i + 1))
-            } else {
-                (Random.nextInt(5, 50) * 10).toDouble()
-            }
-            askTotal += lvlSize
-            asks.add(OrderBookLevel(lvlPrice, lvlSize, askTotal, 0f))
-        }
-
-        val maxBidTotal = bids.lastOrNull()?.total ?: 1.0
-        val maxAskTotal = asks.lastOrNull()?.total ?: 1.0
-        val maxTotal = max(maxBidTotal, maxAskTotal)
-
-        val normalizedBids = bids.map { it.copy(depthPercentage = (it.total / maxTotal).toFloat().coerceIn(0.05f, 1f)) }
-        val normalizedAsks = asks.map { it.copy(depthPercentage = (it.total / maxTotal).toFloat().coerceIn(0.05f, 1f)) }
-
-        val bestBid = bids.firstOrNull()?.price ?: price
-        val bestAsk = asks.firstOrNull()?.price ?: price
-        val spread = round2(bestAsk - bestBid)
-        val spreadPct = if (price > 0) round2((spread / price) * 100.0) else 0.0
-
-        return OrderBook(symbol, normalizedBids, normalizedAsks, spread, spreadPct)
-    }
-
-    private fun round2(v: Double): Double = (v * 100.0).roundToInt() / 100.0
 }

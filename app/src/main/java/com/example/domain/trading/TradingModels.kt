@@ -1,49 +1,96 @@
 package com.example.domain.trading
 
-enum class OrderSide(val label: String) {
-    BUY("Buy / Long"),
-    SELL("Sell / Short")
+data class Instrument(
+    val symbol: String,
+    val name: String,
+    val category: String, // STOCKS, CRYPTO, FOREX, COMMODITIES
+    val currentPrice: Double,
+    val change24h: Double,
+    val high24h: Double,
+    val low24h: Double,
+    val volume24h: Double,
+    val sparkline: List<Double> = emptyList()
+)
+
+data class CandleStick(
+    val timestamp: Long,
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double,
+    val volume: Double
+)
+
+enum class TimeFrame(val label: String, val seconds: Long) {
+    M1("1m", 60),
+    M5("5m", 300),
+    M15("15m", 900),
+    H1("1h", 3600),
+    D1("1D", 86400)
 }
 
-enum class OrderType(val label: String) {
-    MARKET("Market"),
-    LIMIT("Limit"),
-    STOP_LOSS("Stop Loss"),
-    TAKE_PROFIT("Take Profit")
-}
+enum class OrderSide { BUY, SELL }
+enum class OrderType { MARKET, LIMIT }
 
-enum class OrderStatus(val label: String) {
-    PENDING("Working / Open"),
-    FILLED("Filled / Settled"),
-    CANCELLED("Cancelled"),
-    REJECTED("Rejected")
-}
-
-data class OrderRequest(
+data class Order(
+    val id: String,
     val symbol: String,
     val side: OrderSide,
     val type: OrderType,
     val quantity: Double,
-    val limitPrice: Double? = null,
-    val stopPrice: Double? = null
+    val price: Double,
+    val status: String,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
-sealed class RiskValidationResult {
-    data object Approved : RiskValidationResult()
-    data class Rejected(val reason: String) : RiskValidationResult()
+data class Position(
+    val id: String,
+    val symbol: String,
+    val side: OrderSide,
+    val quantity: Double,
+    val entryPrice: Double,
+    val currentPrice: Double,
+    val pnl: Double,
+    val pnlPercentage: Double,
+    val leverage: Double = 1.0
+)
+
+data class OrderBookLevel(
+    val price: Double,
+    val size: Double,
+    val total: Double
+)
+
+data class OrderBookDepth(
+    val bids: List<OrderBookLevel>,
+    val asks: List<OrderBookLevel>,
+    val spread: Double
+)
+
+data class TapeTrade(
+    val id: String,
+    val time: String,
+    val price: Double,
+    val size: Double,
+    val side: OrderSide
+)
+
+enum class AlertCondition(val title: String, val description: String) {
+    CROSSES_ABOVE("Rises Above (≥)", "Trigger when price rises to or crosses above target"),
+    CROSSES_BELOW("Falls Below (≤)", "Trigger when price drops to or crosses below target")
 }
 
-data class PortfolioSummary(
-    val netLiquidity: Double,
-    val cashBalance: Double,
-    val investedValue: Double,
-    val buyingPower: Double,
-    val unrealizedPnL: Double,
-    val unrealizedPnLPercent: Double,
-    val totalRealizedPnL: Double,
-    val todayPnL: Double,
-    val todayPnLPercent: Double,
-    val openPositionsCount: Int,
-    val winRatePercent: Double,
-    val totalTradesCount: Int
+data class StockPriceAlert(
+    val id: String,
+    val symbol: String,
+    val instrumentName: String,
+    val targetPrice: Double,
+    val initialPriceAtCreation: Double,
+    val condition: AlertCondition,
+    val note: String = "",
+    val isEnabled: Boolean = true,
+    val isTriggered: Boolean = false,
+    val triggeredAt: Long? = null,
+    val triggerPrice: Double? = null,
+    val createdAt: Long = System.currentTimeMillis()
 )

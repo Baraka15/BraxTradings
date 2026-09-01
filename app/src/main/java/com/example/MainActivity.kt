@@ -1,334 +1,189 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.content.ContextCompat
 import com.example.ui.TradingViewModel
-import com.example.ui.UiMessage
-import com.example.ui.screens.*
-import com.example.ui.theme.*
+import com.example.ui.components.TriggeredAlertBanner
+import com.example.ui.screens.AlertsScreen
+import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.PortfolioScreen
+import com.example.ui.theme.BraxTradingsTheme
+import com.example.ui.theme.DarkBackground
+import com.example.ui.theme.DarkSurfaceElevated
+import com.example.ui.theme.AccentCyan
+import com.example.ui.theme.BullishGreen
 import kotlinx.coroutines.flow.collectLatest
 
-enum class ScreenNav(
-    val title: String,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector
-) {
-    DASHBOARD("Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
-    TRADINGVIEW("TradingView", Icons.Filled.ShowChart, Icons.Outlined.ShowChart),
-    TERMINAL("Terminal", Icons.Filled.TrendingUp, Icons.Outlined.TrendingUp),
-    SCANNER("Market", Icons.Filled.Explore, Icons.Outlined.Explore),
-    PORTFOLIO("Wallet", Icons.Filled.AccountBalanceWallet, Icons.Outlined.AccountBalanceWallet),
-    ALERTS("Alerts", Icons.Filled.Notifications, Icons.Outlined.Notifications),
-    SETTINGS("System", Icons.Filled.Settings, Icons.Outlined.Settings)
+enum class MainNavigationTab(val title: String) {
+    MARKETS("Markets"),
+    ALERTS("Price Alerts"),
+    PORTFOLIO("Portfolio")
 }
 
 class MainActivity : ComponentActivity() {
+    private val viewModel: TradingViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+
         setContent {
             BraxTradingsTheme {
-                MainApp()
-            }
-        }
-    }
-}
+                val context = LocalContext.current
+                var currentTab by remember { mutableStateOf(MainNavigationTab.MARKETS) }
+                val snackbarHostState = remember { SnackbarHostState() }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun MainApp(viewModel: TradingViewModel = viewModel()) {
-    var currentScreen by remember { mutableStateOf(ScreenNav.DASHBOARD) }
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    val isStreaming by viewModel.marketEngine.isStreaming.collectAsState()
-    val summary by viewModel.portfolioSummary.collectAsState()
-    val alerts by viewModel.alerts.collectAsState()
-    val activeAlertCount = alerts.count { it.isActive && !it.isTriggered }
-
-    // Listen for UI messages & Trade execution fills
-    LaunchedEffect(Unit) {
-        viewModel.uiMessages.collectLatest { msg ->
-            when (msg) {
-                is UiMessage.Success -> {
-                    snackbarHostState.showSnackbar(msg.message)
-                }
-                is UiMessage.Error -> {
-                    snackbarHostState.showSnackbar(msg.message)
-                }
-                is UiMessage.TradeFilled -> {
-                    val fill = msg.fill
-                    snackbarHostState.showSnackbar(
-                        "TRADE FILLED: ${fill.side.name} ${fill.quantity} ${fill.symbol} @ $${"%.2f".format(fill.fillPrice)}"
+                var hasNotificationPermission by remember {
+                    mutableStateOf(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) == PackageManager.PERMISSION_GRANTED
+                        } else {
+                            true
+                        }
                     )
                 }
-            }
-        }
-    }
 
-    // Listen for Live Triggered Alerts
-    LaunchedEffect(Unit) {
-        viewModel.alertEngine.alertEvents.collectLatest { alertNotif ->
-            snackbarHostState.showSnackbar(
-                "ALERT TRIGGERED [${alertNotif.symbol}]: ${alertNotif.conditionText}"
-            )
-        }
-    }
-
-    Scaffold(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("braxtradings_root"),
-        containerColor = CanvasDark,
-        snackbarHost = {
-            SnackbarHost(
-                hostState = snackbarHostState,
-                snackbar = { data ->
-                    Snackbar(
-                        snackbarData = data,
-                        containerColor = M3Primary,
-                        contentColor = Color.White,
-                        actionColor = M3PrimaryContainer,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.padding(12.dp)
-                    )
+                val permissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) { isGranted ->
+                    hasNotificationPermission = isGranted
                 }
-            )
-        },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Avatar Badge "B"
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(M3Primary),
-                            contentAlignment = Alignment.Center
+
+                // Handle intent extras if opened from notification click
+                LaunchedEffect(intent) {
+                    val alertSymbol = intent?.getStringExtra("EXTRA_SYMBOL")
+                    if (alertSymbol != null) {
+                        viewModel.selectSymbol(alertSymbol)
+                        currentTab = MainNavigationTab.ALERTS
+                    }
+                }
+
+                // Collect toast / snackbar messages
+                LaunchedEffect(Unit) {
+                    viewModel.toastMessage.collectLatest { message ->
+                        snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
+                    }
+                }
+
+                val triggeredAlertBanner by viewModel.triggeredAlertBanner.collectAsState()
+                val alerts by viewModel.alerts.collectAsState()
+                val activeAlertsCount = alerts.count { it.isEnabled && !it.isTriggered }
+
+                Scaffold(
+                    snackbarHost = { SnackbarHost(snackbarHostState) },
+                    bottomBar = {
+                        NavigationBar(
+                            containerColor = DarkSurfaceElevated,
+                            contentColor = Color.White
                         ) {
-                            Text(
-                                text = "B",
-                                color = Color.White,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Column {
-                            Text(
-                                text = "@BRAXTRADINGS",
-                                color = M3Primary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            )
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isStreaming) BullGreen else BearRed)
+                            NavigationBarItem(
+                                selected = currentTab == MainNavigationTab.MARKETS,
+                                onClick = { currentTab = MainNavigationTab.MARKETS },
+                                icon = { Icon(Icons.Default.ShowChart, contentDescription = "Markets") },
+                                label = { Text("Markets", fontSize = 11.sp) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = AccentCyan,
+                                    selectedTextColor = AccentCyan,
+                                    indicatorColor = DarkBackground
                                 )
-                                Text(
-                                    text = if (isStreaming) "MARKET OPEN" else "MARKET PAUSED",
-                                    color = TextSecondary,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Medium
+                            )
+
+                            NavigationBarItem(
+                                selected = currentTab == MainNavigationTab.ALERTS,
+                                onClick = { currentTab = MainNavigationTab.ALERTS },
+                                icon = {
+                                    BadgedBox(
+                                        badge = {
+                                            if (activeAlertsCount > 0) {
+                                                Badge(containerColor = BullishGreen) {
+                                                    Text("$activeAlertsCount", color = DarkBackground)
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Icon(Icons.Default.NotificationsActive, contentDescription = "Price Alerts")
+                                    }
+                                },
+                                label = { Text("Alerts", fontSize = 11.sp) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = AccentCyan,
+                                    selectedTextColor = AccentCyan,
+                                    indicatorColor = DarkBackground
                                 )
-                            }
-                        }
-                    }
-                },
-                actions = {
-                    // Net Liquidity Quick Pill
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = M3SecondaryContainer,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark),
-                        modifier = Modifier
-                            .clickable { currentScreen = ScreenNav.PORTFOLIO }
-                            .padding(end = 4.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                "$%,.2f".format(summary.netLiquidity),
-                                color = M3OnSecondaryContainer,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
+                            )
+
+                            NavigationBarItem(
+                                selected = currentTab == MainNavigationTab.PORTFOLIO,
+                                onClick = { currentTab = MainNavigationTab.PORTFOLIO },
+                                icon = { Icon(Icons.Default.Analytics, contentDescription = "Portfolio") },
+                                label = { Text("Portfolio", fontSize = 11.sp) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = AccentCyan,
+                                    selectedTextColor = AccentCyan,
+                                    indicatorColor = DarkBackground
+                                )
                             )
                         }
                     }
-
-                    // Scanner Search Button
-                    IconButton(
-                        onClick = { currentScreen = ScreenNav.SCANNER },
+                ) { innerPadding ->
+                    Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(M3PrimaryContainer)
+                            .fillMaxSize()
+                            .background(DarkBackground)
+                            .padding(innerPadding)
                     ) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = "Search Market",
-                            tint = M3OnPrimaryContainer,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    // Alert Bell Icon
-                    BadgedBox(
-                        badge = {
-                            if (activeAlertCount > 0) {
-                                Badge(
-                                    containerColor = BearRed,
-                                    contentColor = Color.White
-                                ) {
-                                    Text("$activeAlertCount", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // In-App Triggered Notification Banner
+                            TriggeredAlertBanner(
+                                alert = triggeredAlertBanner,
+                                onDismiss = { viewModel.dismissBanner() },
+                                onViewAlerts = {
+                                    viewModel.dismissBanner()
+                                    currentTab = MainNavigationTab.ALERTS
                                 }
-                            }
-                        },
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        IconButton(
-                            onClick = { currentScreen = ScreenNav.ALERTS },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(if (currentScreen == ScreenNav.ALERTS) M3SecondaryContainer else M3PrimaryContainer)
-                        ) {
-                            Icon(
-                                if (currentScreen == ScreenNav.ALERTS) Icons.Filled.Notifications else Icons.Outlined.Notifications,
-                                contentDescription = "Alerts",
-                                tint = M3OnPrimaryContainer,
-                                modifier = Modifier.size(18.dp)
                             )
+
+                            when (currentTab) {
+                                MainNavigationTab.MARKETS -> DashboardScreen(
+                                    viewModel = viewModel,
+                                    onNavigateToAlerts = { currentTab = MainNavigationTab.ALERTS }
+                                )
+                                MainNavigationTab.ALERTS -> AlertsScreen(
+                                    viewModel = viewModel,
+                                    hasNotificationPermission = hasNotificationPermission,
+                                    onRequestNotificationPermission = {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        }
+                                    }
+                                )
+                                MainNavigationTab.PORTFOLIO -> PortfolioScreen(viewModel = viewModel)
+                            }
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = CanvasDark,
-                    titleContentColor = TextPrimary
-                )
-            )
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = SurfaceElevated,
-                tonalElevation = 3.dp,
-                modifier = Modifier
-                    .border(androidx.compose.foundation.BorderStroke(1.dp, BorderDark))
-                    .testTag("bottom_nav_bar")
-            ) {
-                ScreenNav.values().forEach { screen ->
-                    val isSelected = currentScreen == screen
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { currentScreen = screen },
-                        icon = {
-                            Icon(
-                                imageVector = if (isSelected) screen.selectedIcon else screen.unselectedIcon,
-                                contentDescription = screen.title
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = screen.title,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = M3OnSecondaryContainer,
-                            selectedTextColor = TextPrimary,
-                            unselectedIconColor = TextSecondary,
-                            unselectedTextColor = TextSecondary,
-                            indicatorColor = M3SecondaryContainer
-                        ),
-                        modifier = Modifier.testTag("nav_tab_${screen.name.lowercase()}")
-                    )
-                }
-            }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            when (currentScreen) {
-                ScreenNav.DASHBOARD -> {
-                    DashboardScreen(
-                        viewModel = viewModel,
-                        onNavigateToTradingView = { currentScreen = ScreenNav.TRADINGVIEW }
-                    )
-                }
-                ScreenNav.TRADINGVIEW -> {
-                    TradingViewScreen(
-                        viewModel = viewModel
-                    )
-                }
-                ScreenNav.TERMINAL -> {
-                    TerminalScreen(
-                        viewModel = viewModel
-                    )
-                }
-                ScreenNav.SCANNER -> {
-                    ScannerScreen(
-                        viewModel = viewModel,
-                        onNavigateToTerminal = { currentScreen = ScreenNav.DASHBOARD }
-                    )
-                }
-                ScreenNav.PORTFOLIO -> {
-                    PortfolioScreen(
-                        viewModel = viewModel,
-                        onNavigateToTerminal = { currentScreen = ScreenNav.DASHBOARD }
-                    )
-                }
-                ScreenNav.ALERTS -> {
-                    AlertsScreen(
-                        viewModel = viewModel,
-                        onNavigateToTerminal = { currentScreen = ScreenNav.DASHBOARD }
-                    )
-                }
-                ScreenNav.SETTINGS -> {
-                    SettingsScreen(
-                        viewModel = viewModel
-                    )
                 }
             }
         }

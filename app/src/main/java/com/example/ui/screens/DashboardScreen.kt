@@ -1,120 +1,281 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.market.AssetType
-import com.example.data.market.Quote
-import com.example.data.market.TimeFrame
-import com.example.domain.trading.OrderRequest
-import com.example.domain.trading.OrderSide
-import com.example.domain.trading.OrderType
+import com.example.domain.trading.*
 import com.example.ui.TradingViewModel
-import com.example.ui.components.InteractiveCandlestickChart
+import com.example.ui.components.CreatePriceAlertDialog
+import com.example.ui.components.OrderBookAndTapeView
+import com.example.ui.components.RealtimeCandleChart
+import com.example.ui.components.SparklineView
 import com.example.ui.theme.*
-
-enum class TickerSortOption(val label: String) {
-    GAINERS("Top Gainers"),
-    LOSERS("Top Losers"),
-    VOLUME("Most Active"),
-    ALPHABETICAL("A - Z")
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     viewModel: TradingViewModel,
-    onNavigateToTradingView: () -> Unit,
-    modifier: Modifier = Modifier
+    onNavigateToAlerts: () -> Unit
 ) {
-    val quotesMap by viewModel.marketEngine.quotes.collectAsStateWithLifecycle()
-    val selectedSymbol by viewModel.selectedSymbol.collectAsStateWithLifecycle()
-    val selectedTimeFrame by viewModel.selectedTimeFrame.collectAsStateWithLifecycle()
-    val currentQuote by viewModel.currentQuote.collectAsStateWithLifecycle()
-    val currentCandles by viewModel.currentCandles.collectAsStateWithLifecycle()
-    val indicatorToggles by viewModel.indicatorToggles.collectAsStateWithLifecycle()
-    val watchlist by viewModel.watchlist.collectAsStateWithLifecycle()
-    val isStreaming by viewModel.marketEngine.isStreaming.collectAsStateWithLifecycle()
+    val instruments by viewModel.instruments.collectAsState()
+    val selectedSymbol by viewModel.selectedSymbol.collectAsState()
+    val candleHistory by viewModel.candleHistory.collectAsState()
+    val orderBook by viewModel.orderBook.collectAsState()
+    val recentTrades by viewModel.recentTrades.collectAsState()
+    val timeFrame by viewModel.selectedTimeFrame.collectAsState()
+    val balance by viewModel.balance.collectAsState()
+    val isStreaming by viewModel.isStreaming.collectAsState()
+    val alerts by viewModel.alerts.collectAsState()
 
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedAssetFilter by remember { mutableStateOf<AssetType?>(null) }
-    var selectedSortOption by remember { mutableStateOf(TickerSortOption.GAINERS) }
-    var showQuickTradeDialog by remember { mutableStateOf(false) }
-    var quickTradeSide by remember { mutableStateOf(OrderSide.BUY) }
+    var selectedTab by remember { mutableStateOf("ALL") }
+    var orderQuantity by remember { mutableStateOf("1.0") }
+    var leverage by remember { mutableStateOf(1.0) }
 
-    val watchlistSymbols = remember(watchlist) { watchlist.map { it.symbol }.toSet() }
+    var showAlertDialogForInstrument by remember { mutableStateOf<Instrument?>(null) }
 
-    // Filtered & Sorted Ticker List
-    val displayedQuotes = remember(quotesMap, searchQuery, selectedAssetFilter, selectedSortOption) {
-        var list = quotesMap.values.toList()
+    val activeInstrument = instruments.find { it.symbol == selectedSymbol }
+    val currentCandles = candleHistory[selectedSymbol]?.get(timeFrame) ?: emptyList()
+    val activeSymbolAlerts = alerts.filter { it.symbol == selectedSymbol && it.isEnabled && !it.isTriggered }
+    val alertTargets = activeSymbolAlerts.map { it.targetPrice }
 
-        if (selectedAssetFilter != null) {
-            list = list.filter { it.assetType == selectedAssetFilter }
-        }
+    val filteredInstruments = when (selectedTab) {
+        "STOCKS" -> instruments.filter { it.category == "STOCKS" }
+        "CRYPTO" -> instruments.filter { it.category == "CRYPTO" }
+        else -> instruments
+    }
 
-        if (searchQuery.isNotBlank()) {
-            list = list.filter {
-                it.symbol.contains(searchQuery, ignoreCase = true) ||
-                it.name.contains(searchQuery, ignoreCase = true)
+    if (showAlertDialogForInstrument != null) {
+        CreatePriceAlertDialog(
+            instrument = showAlertDialogForInstrument!!,
+            onDismiss = { showAlertDialogForInstrument = null },
+            onConfirm = { symbol, targetPrice, condition, note ->
+                viewModel.createPriceAlert(symbol, targetPrice, condition, note)
             }
-        }
-
-        when (selectedSortOption) {
-            TickerSortOption.GAINERS -> list.sortedByDescending { it.changePercent }
-            TickerSortOption.LOSERS -> list.sortedBy { it.changePercent }
-            TickerSortOption.VOLUME -> list.sortedByDescending { it.volume }
-            TickerSortOption.ALPHABETICAL -> list.sortedBy { it.symbol }
-        }
+        )
     }
 
     LazyColumn(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
-            .background(CanvasDark)
-            .padding(horizontal = 14.dp),
+            .background(DarkBackground)
+            .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
-        contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp)
+        contentPadding = PaddingValues(bottom = 84.dp, top = 8.dp)
     ) {
-        // 1. Dashboard Header & Market Status
+        // Portfolio Balance & Live Stream Status
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+                colors = CardDefaults.cardColors(containerColor = DarkSurfaceElevated)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Portfolio Margin Balance", color = TextSecondary, fontSize = 12.sp)
+                        Text(
+                            "\$${String.format("%,.2f", balance)}",
+                            color = TextPrimary,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isStreaming) BullishGreen.copy(alpha = 0.15f) else DarkSurface,
+                            modifier = Modifier.clickable { viewModel.toggleStreaming() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(if (isStreaming) BullishGreen else TextMuted, RoundedCornerShape(4.dp))
+                                )
+                                Text(
+                                    if (isStreaming) "LIVE" else "PAUSED",
+                                    color = if (isStreaming) BullishGreen else TextMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Active Stock / Crypto Header & Real-time Chart
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = DarkSurface)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    activeInstrument?.symbol ?: "NVDA",
+                                    color = TextPrimary,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = AccentCyan.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        activeInstrument?.category ?: "STOCKS",
+                                        color = AccentCyan,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                activeInstrument?.name ?: "NVIDIA Corporation",
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        val change = activeInstrument?.change24h ?: 0.0
+                        val isPositive = change >= 0
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                "\$${String.format("%.2f", activeInstrument?.currentPrice ?: 0.0)}",
+                                color = if (isPositive) BullishGreen else BearishRed,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                "${if (isPositive) "+" else ""}${String.format("%.2f", change)}%",
+                                color = if (isPositive) BullishGreen else BearishRed,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Timeframe Selectors + Quick Alert Trigger Button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            TimeFrame.values().forEach { tf ->
+                                val isSelected = tf == timeFrame
+                                Surface(
+                                    modifier = Modifier
+                                        .clickable { viewModel.selectTimeFrame(tf) }
+                                        .height(28.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isSelected) AccentCyan else DarkSurfaceElevated
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            tf.label,
+                                            color = if (isSelected) DarkBackground else TextSecondary,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Button to trigger price alert creation
+                        Surface(
+                            modifier = Modifier
+                                .height(28.dp)
+                                .clickable {
+                                    if (activeInstrument != null) {
+                                        showAlertDialogForInstrument = activeInstrument
+                                    }
+                                },
+                            shape = RoundedCornerShape(6.dp),
+                            color = AccentGold.copy(alpha = 0.2f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = AccentGold, modifier = Modifier.size(14.dp))
+                                Text("Set Alert", color = AccentGold, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Real-time Candlestick Chart with alert price targets
+                    RealtimeCandleChart(
+                        candles = currentCandles,
+                        alertPriceTargets = alertTargets,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                    )
+                }
+            }
+        }
+
+        // Active Alerts summary for selected symbol if any
+        if (activeSymbolAlerts.isNotEmpty()) {
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToAlerts() },
+                    shape = RoundedCornerShape(10.dp),
+                    color = AccentGold.copy(alpha = 0.1f),
+                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(AccentGold.copy(alpha = 0.4f)))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -122,658 +283,217 @@ fun DashboardScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isStreaming) BullGreen else BearRed)
-                            )
+                            Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = AccentGold, modifier = Modifier.size(18.dp))
                             Text(
-                                text = if (isStreaming) "LIVE MARKET DATA FEED" else "MARKET FEED PAUSED",
-                                color = TextPrimary,
-                                fontWeight = FontWeight.Black,
+                                "${activeSymbolAlerts.size} active price alert(s) on $selectedSymbol",
+                                color = AccentGold,
                                 fontSize = 12.sp,
-                                letterSpacing = 0.8.sp
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
-
-                        // Day Trader Speed Control / Streaming Toggle
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(SurfaceContainerHigh)
-                                .clickable { viewModel.toggleStreaming() }
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isStreaming) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Toggle stream",
-                                tint = M3Primary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = if (isStreaming) "Active" else "Resume",
-                                color = M3Primary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Text("View >", color = AccentGold, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
 
-                    Spacer(Modifier.height(10.dp))
+        // Instant Market Execution Panel
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = DarkSurfaceElevated)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text("Instant Order Execution", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    // Real-Time Quick Stats Strip
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        QuickMetric(label = "ACTIVE SYMBOLS", value = "${quotesMap.size}")
-                        val gainersCount = quotesMap.values.count { it.isPositive }
-                        QuickMetric(label = "BULL/BEAR", value = "$gainersCount / ${quotesMap.size - gainersCount}", valueColor = BullGreen)
-                        val totalVol = quotesMap.values.sumOf { it.volume }
-                        QuickMetric(label = "TOTAL VOLUME", value = "${totalVol / 1_000_000}M")
-                    }
-                }
-            }
-        }
+                        OutlinedTextField(
+                            value = orderQuantity,
+                            onValueChange = { orderQuantity = it },
+                            label = { Text("Shares / Units", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                focusedBorderColor = AccentCyan,
+                                unfocusedBorderColor = DarkBorder
+                            )
+                        )
 
-        // 2. Selected Symbol Hero View & Chart Section
-        item {
-            if (currentQuote != null) {
-                val quote = currentQuote!!
-                val isBull = quote.isPositive
-                val changeColor = if (isBull) BullGreen else BearRed
-                val isFavorite = watchlistSymbols.contains(quote.symbol)
-
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-                    shape = RoundedCornerShape(18.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, M3Primary.copy(alpha = 0.3f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("dashboard_selected_hero_card")
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        // Symbol Header Row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            text = quote.symbol,
-                                            color = TextPrimary,
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = 24.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                        Surface(
-                                            color = M3PrimaryContainer,
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text(
-                                                text = quote.assetType.label,
-                                                color = M3OnPrimaryContainer,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = quote.name,
-                                        color = TextSecondary,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                // Watchlist Star Button
-                                IconButton(
-                                    onClick = { viewModel.toggleWatchlist(quote.symbol, quote.name, quote.assetType) },
-                                    modifier = Modifier.size(36.dp).testTag("dash_watchlist_btn")
-                                ) {
-                                    Icon(
-                                        imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                                        contentDescription = "Favorite",
-                                        tint = if (isFavorite) Color(0xFFFFD700) else TextSecondary
-                                    )
-                                }
-
-                                // Open TradingView CTA button
-                                Button(
-                                    onClick = onNavigateToTradingView,
-                                    colors = ButtonDefaults.buttonColors(containerColor = M3Primary),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                    modifier = Modifier.testTag("dash_open_tradingview_btn")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ShowChart,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                        tint = Color.White
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("TradingView Analysis", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.height(12.dp))
-
-                        // Large Price & 24h Change Row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Bottom
-                        ) {
-                            Column {
-                                Text(
-                                    text = "$${"%.2f".format(quote.price)}",
-                                    color = TextPrimary,
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Black,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        text = "${if (isBull) "+" else ""}${"%.2f".format(quote.change)} (${if (isBull) "+" else ""}${"%.2f".format(quote.changePercent)}%)",
-                                        color = changeColor,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                    Text("24h", color = TextSecondary, fontSize = 12.sp)
-                                }
-                            }
-
-                            // Quick Trade Actions (Buy / Sell)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = {
-                                        quickTradeSide = OrderSide.BUY
-                                        showQuickTradeDialog = true
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = BullGreen),
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                    modifier = Modifier.testTag("dash_buy_btn")
-                                ) {
-                                    Text("BUY", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                }
-
-                                Button(
-                                    onClick = {
-                                        quickTradeSide = OrderSide.SELL
-                                        showQuickTradeDialog = true
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = BearRed),
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                    modifier = Modifier.testTag("dash_sell_btn")
-                                ) {
-                                    Text("SELL", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.height(14.dp))
-
-                        // Timeframe Bar
+                        // Leverage Selectors
                         Row(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
+                                .weight(1f)
+                                .align(Alignment.CenterVertically),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            TimeFrame.values().forEach { tf ->
-                                val isSelected = tf == selectedTimeFrame
+                            listOf(1.0, 5.0, 10.0).forEach { lev ->
+                                val isSelected = leverage == lev
                                 Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (isSelected) M3PrimaryContainer else SurfaceCard,
                                     modifier = Modifier
-                                        .clickable { viewModel.selectTimeFrame(tf) }
-                                        .testTag("dash_tf_${tf.label}")
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .clickable { leverage = lev },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isSelected) AccentGold else DarkSurface
                                 ) {
-                                    Text(
-                                        text = tf.label,
-                                        color = if (isSelected) M3OnPrimaryContainer else TextSecondary,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                                    )
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            "${lev.toInt()}x",
+                                            color = if (isSelected) DarkBackground else TextSecondary,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        )
+                                    }
                                 }
                             }
                         }
+                    }
 
-                        Spacer(Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                        // Chart Viewport for Selected Symbol
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(220.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(CanvasDark)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val qty = orderQuantity.toDoubleOrNull() ?: 1.0
+                                viewModel.placeOrder(selectedSymbol, OrderSide.BUY, OrderType.MARKET, qty, leverage = leverage)
+                            },
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = BullishGreen)
                         ) {
-                            InteractiveCandlestickChart(
-                                candles = currentCandles,
-                                indicatorToggles = indicatorToggles,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            Text("BUY / LONG", color = DarkBackground, fontWeight = FontWeight.Bold)
                         }
 
-                        Spacer(Modifier.height(12.dp))
-
-                        // Key Indicators Summary Grid
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        Button(
+                            onClick = {
+                                val qty = orderQuantity.toDoubleOrNull() ?: 1.0
+                                viewModel.placeOrder(selectedSymbol, OrderSide.SELL, OrderType.MARKET, qty, leverage = leverage)
+                            },
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = BearishRed)
                         ) {
-                            KeyStat(label = "24h High", value = "$${"%.2f".format(quote.high)}")
-                            KeyStat(label = "24h Low", value = "$${"%.2f".format(quote.low)}")
-                            KeyStat(label = "VWAP", value = "$${"%.2f".format(quote.vwap)}")
-                            KeyStat(label = "RSI (14)", value = "%.1f".format(quote.rsi14), isWarning = quote.rsi14 >= 70 || quote.rsi14 <= 30)
+                            Text("SELL / SHORT", color = TextPrimary, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
         }
 
-        // 3. Live Price Ticker List Header & Controls
+        // Order Book & Live Trades
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OrderBookAndTapeView(
+                orderBook = orderBook,
+                recentTrades = recentTrades
+            )
+        }
+
+        // Watchlist Categories & Fast Alert Buttons
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Markets & Stock Watchlist", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(listOf("ALL", "STOCKS", "CRYPTO")) { tab ->
+                        val isSelected = tab == selectedTab
+                        Surface(
+                            modifier = Modifier
+                                .clickable { selectedTab = tab }
+                                .height(26.dp),
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isSelected) DarkSurfaceElevated else Color.Transparent
+                        ) {
+                            Box(modifier = Modifier.padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(
+                                    tab,
+                                    color = if (isSelected) AccentCyan else TextMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Watchlist Items
+        items(filteredInstruments) { inst ->
+            val isSelected = inst.symbol == selectedSymbol
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.selectSymbol(inst.symbol) },
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isSelected) DarkSurfaceElevated else DarkSurface
+                ),
+                border = if (isSelected) CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(AccentCyan)) else null
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "LIVE PRICE TICKERS",
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 15.sp,
-                        letterSpacing = 0.5.sp
-                    )
-                    Text(
-                        text = "${displayedQuotes.size} markets active",
-                        color = TextSecondary,
-                        fontSize = 12.sp
-                    )
-                }
-
-                // Search Bar
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search tickers (e.g., NVDA, BTC, AAPL)...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextSecondary) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear", tint = TextSecondary)
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = M3Primary,
-                        unfocusedBorderColor = BorderDark,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedContainerColor = SurfaceElevated,
-                        unfocusedContainerColor = SurfaceElevated
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("dash_ticker_search_input")
-                )
-
-                // Asset Category Filter Chips
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    FilterChip(
-                        selected = selectedAssetFilter == null,
-                        onClick = { selectedAssetFilter = null },
-                        label = { Text("All Markets") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = M3PrimaryContainer,
-                            selectedLabelColor = M3OnPrimaryContainer
-                        )
-                    )
-                    AssetType.values().forEach { asset ->
-                        FilterChip(
-                            selected = selectedAssetFilter == asset,
-                            onClick = { selectedAssetFilter = if (selectedAssetFilter == asset) null else asset },
-                            label = { Text(asset.label) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = M3PrimaryContainer,
-                                selectedLabelColor = M3OnPrimaryContainer
-                            )
-                        )
+                    Column(modifier = Modifier.weight(1.1f)) {
+                        Text(inst.symbol, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(inst.name, color = TextSecondary, fontSize = 11.sp, maxLines = 1)
                     }
-                }
 
-                // Sort Option Selector Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    TickerSortOption.values().forEach { sortOpt ->
-                        val isSel = selectedSortOption == sortOpt
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isSel) SurfaceContainerHigh else SurfaceCard,
-                            border = if (isSel) androidx.compose.foundation.BorderStroke(1.dp, M3Primary) else null,
-                            modifier = Modifier.clickable { selectedSortOption = sortOpt }
-                        ) {
-                            Text(
-                                text = sortOpt.label,
-                                color = if (isSel) M3Primary else TextSecondary,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. Live Ticker List Items
-        items(displayedQuotes, key = { it.symbol }) { quote ->
-            val isSelected = quote.symbol == selectedSymbol
-            val isFavorite = watchlistSymbols.contains(quote.symbol)
-
-            DashboardTickerItem(
-                quote = quote,
-                isSelected = isSelected,
-                isFavorite = isFavorite,
-                onSelect = { viewModel.selectSymbol(quote.symbol) },
-                onToggleWatchlist = { viewModel.toggleWatchlist(quote.symbol, quote.name, quote.assetType) },
-                onOpenTradingView = {
-                    viewModel.selectSymbol(quote.symbol)
-                    onNavigateToTradingView()
-                }
-            )
-        }
-    }
-
-    // Quick Trade Placement Dialog
-    if (showQuickTradeDialog && currentQuote != null) {
-        var sharesText by remember { mutableStateOf("10") }
-        val price = currentQuote!!.price
-
-        AlertDialog(
-            onDismissRequest = { showQuickTradeDialog = false },
-            containerColor = SurfaceElevated,
-            title = {
-                Text(
-                    "Order: ${quickTradeSide.name} $selectedSymbol",
-                    color = if (quickTradeSide == OrderSide.BUY) BullGreen else BearRed,
-                    fontWeight = FontWeight.Black
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Market Price: $${"%.2f".format(price)}",
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontFamily = FontFamily.Monospace
+                    // Sparkline
+                    SparklineView(
+                        data = inst.sparkline,
+                        isPositive = inst.change24h >= 0,
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .height(24.dp)
+                            .padding(horizontal = 4.dp)
                     )
-                    OutlinedTextField(
-                        value = sharesText,
-                        onValueChange = { sharesText = it.filter { c -> c.isDigit() } },
-                        label = { Text("Shares / Quantity") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = if (quickTradeSide == OrderSide.BUY) BullGreen else BearRed,
-                            unfocusedBorderColor = BorderDark,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
-                        ),
-                        modifier = Modifier.fillMaxWidth().testTag("dash_trade_shares_input")
-                    )
-                    val qty = sharesText.toDoubleOrNull() ?: 0.0
-                    val totalNotional = qty * price
-                    Text(
-                        "Estimated Order Value: $${"%,.2f".format(totalNotional)}",
-                        color = TextSecondary,
-                        fontSize = 12.sp
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val qty = sharesText.toDoubleOrNull() ?: 10.0
-                        if (qty > 0) {
-                            viewModel.placeOrder(
-                                OrderRequest(
-                                    symbol = selectedSymbol,
-                                    side = quickTradeSide,
-                                    type = OrderType.MARKET,
-                                    quantity = qty
-                                )
-                            )
-                        }
-                        showQuickTradeDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (quickTradeSide == OrderSide.BUY) BullGreen else BearRed
-                    ),
-                    modifier = Modifier.testTag("dash_trade_confirm_btn")
-                ) {
-                    Text("Submit ${quickTradeSide.name}", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showQuickTradeDialog = false }) {
-                    Text("Cancel", color = TextSecondary)
-                }
-            }
-        )
-    }
-}
 
-@Composable
-fun DashboardTickerItem(
-    quote: Quote,
-    isSelected: Boolean,
-    isFavorite: Boolean,
-    onSelect: () -> Unit,
-    onToggleWatchlist: () -> Unit,
-    onOpenTradingView: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val isBull = quote.isPositive
-    val changeColor = if (isBull) BullGreen else BearRed
-
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) M3PrimaryContainer.copy(alpha = 0.4f) else SurfaceElevated
-        ),
-        shape = RoundedCornerShape(14.dp),
-        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, M3Primary) else androidx.compose.foundation.BorderStroke(0.5.dp, BorderDark),
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { onSelect() }
-            .testTag("ticker_item_${quote.symbol}")
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Symbol & Name & Badge
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1.2f)
-            ) {
-                IconButton(
-                    onClick = onToggleWatchlist,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                        contentDescription = "Favorite",
-                        tint = if (isFavorite) Color(0xFFFFD700) else TextSecondary.copy(alpha = 0.5f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    Column(
+                        modifier = Modifier.weight(1.1f),
+                        horizontalAlignment = Alignment.End
                     ) {
                         Text(
-                            text = quote.symbol,
+                            "\$${String.format("%.2f", inst.currentPrice)}",
                             color = TextPrimary,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
                             fontFamily = FontFamily.Monospace
                         )
-                        Surface(
-                            color = SurfaceCard,
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = quote.assetType.label.take(1),
-                                color = TextSecondary,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-                    }
-                    Text(
-                        text = quote.name,
-                        color = TextSecondary,
-                        fontSize = 11.sp,
-                        maxLines = 1
-                    )
-                }
-            }
-
-            // Sparkline Mini Chart
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(34.dp)
-                    .padding(horizontal = 6.dp)
-            ) {
-                if (quote.sparkline.size >= 2) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val points = quote.sparkline
-                        val minVal = points.minOrNull() ?: 0.0
-                        val maxVal = points.maxOrNull() ?: 1.0
-                        val range = maxOf(0.001, maxVal - minVal)
-
-                        val path = Path()
-                        val stepX = size.width / (points.size - 1)
-
-                        points.forEachIndexed { i, v ->
-                            val x = i * stepX
-                            val y = size.height * (1f - ((v - minVal) / range).toFloat())
-                            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                        }
-
-                        drawPath(
-                            path = path,
-                            color = changeColor,
-                            style = Stroke(width = 1.8f)
+                        val isPositive = inst.change24h >= 0
+                        Text(
+                            "${if (isPositive) "+" else ""}${String.format("%.2f", inst.change24h)}%",
+                            color = if (isPositive) BullishGreen else BearishRed,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
-                }
-            }
 
-            // Price & Change Pill
-            Column(
-                horizontalAlignment = Alignment.End,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = "$${"%.2f".format(quote.price)}",
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-                Surface(
-                    color = if (isBull) BullGreenBg else BearRedBg,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = "${if (isBull) "+" else ""}${"%.2f".format(quote.changePercent)}%",
-                        color = changeColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+                    // Set Alert Icon on each item
+                    IconButton(
+                        onClick = { showAlertDialogForInstrument = inst },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.AddAlert, contentDescription = "Add Price Alert", tint = AccentGold, modifier = Modifier.size(18.dp))
+                    }
                 }
-            }
-
-            // Quick Arrow to TradingView
-            IconButton(
-                onClick = onOpenTradingView,
-                modifier = Modifier.size(32.dp).testTag("open_tv_item_${quote.symbol}")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = "Open chart",
-                    tint = TextSecondary,
-                    modifier = Modifier.size(20.dp)
-                )
             }
         }
-    }
-}
-
-@Composable
-private fun QuickMetric(label: String, value: String, valueColor: Color = TextPrimary) {
-    Column {
-        Text(label, color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Medium)
-        Text(value, color = valueColor, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-    }
-}
-
-@Composable
-private fun KeyStat(label: String, value: String, isWarning: Boolean = false) {
-    Column {
-        Text(label, color = TextSecondary, fontSize = 10.sp)
-        Text(
-            text = value,
-            color = if (isWarning) AlertOrange else TextPrimary,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace
-        )
     }
 }

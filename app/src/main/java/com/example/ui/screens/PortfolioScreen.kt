@@ -1,546 +1,210 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.local.OrderEntity
-import com.example.data.local.PositionEntity
-import com.example.data.local.TradeLedgerEntity
 import com.example.domain.trading.OrderSide
-import com.example.domain.trading.OrderStatus
 import com.example.ui.TradingViewModel
 import com.example.ui.theme.*
-import java.text.SimpleDateFormat
-import java.util.*
 
 @Composable
-fun PortfolioScreen(
-    viewModel: TradingViewModel,
-    onNavigateToTerminal: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val summary by viewModel.portfolioSummary.collectAsState()
+fun PortfolioScreen(viewModel: TradingViewModel) {
+    val balance by viewModel.balance.collectAsState()
     val positions by viewModel.positions.collectAsState()
-    val openOrders by viewModel.pendingOrders.collectAsState()
-    val tradeHistory by viewModel.tradeHistory.collectAsState()
-    val quotesMap by viewModel.marketEngine.quotes.collectAsState()
+    val orders by viewModel.orders.collectAsState()
 
-    var selectedSection by remember { mutableStateOf(0) } // 0 = Positions, 1 = Open Orders, 2 = Trade Ledger
+    val totalUnrealizedPnL = positions.sumOf { it.pnl }
+    val totalEquity = balance + positions.sumOf { (it.entryPrice * it.quantity) / it.leverage } + totalUnrealizedPnL
 
     LazyColumn(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
-            .background(CanvasDark)
-            .padding(horizontal = 12.dp)
-            .testTag("portfolio_screen"),
-        contentPadding = PaddingValues(bottom = 32.dp)
+            .background(DarkBackground)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 84.dp, top = 8.dp)
     ) {
-        // 1. Account Equity Hero Card
+        // Total Account Equity Header
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark),
-                shape = RoundedCornerShape(28.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = DarkSurfaceElevated)
             ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Text("TOTAL NET LIQUIDITY", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Total Account Equity", color = TextSecondary, fontSize = 12.sp)
                     Text(
-                        text = "$%,.2f".format(summary.netLiquidity),
+                        "\$${String.format("%,.2f", totalEquity)}",
                         color = TextPrimary,
-                        fontSize = 32.sp,
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.5).sp,
                         fontFamily = FontFamily.Monospace
                     )
 
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    val isTodayPos = summary.todayPnL >= 0
-                    val todayColor = if (isTodayPos) BullGreen else BearRed
-
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isTodayPos) BullGreenBg else BearRedBg
-                        ) {
+                        Column {
+                            Text("Available Margin", color = TextMuted, fontSize = 11.sp)
+                            Text("\$${String.format("%,.2f", balance)}", color = TextPrimary, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Unrealized PnL", color = TextMuted, fontSize = 11.sp)
+                            val isPos = totalUnrealizedPnL >= 0
                             Text(
-                                text = "${if (isTodayPos) "+" else ""}$${"%,.2f".format(summary.todayPnL)} (${if (isTodayPos) "+" else ""}${"%.2f".format(summary.todayPnLPercent)}%)",
-                                color = todayColor,
-                                fontSize = 12.sp,
+                                "${if (isPos) "+" else ""}\$${String.format("%.2f", totalUnrealizedPnL)}",
+                                color = if (isPos) BullishGreen else BearishRed,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                fontFamily = FontFamily.Monospace
                             )
                         }
-                        Text("Today", color = TextSecondary, fontSize = 12.sp)
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = BorderDark, thickness = 1.dp)
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Grid of 4 sub-metrics
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        MetricItem("Cash Balance", "$%,.2f".format(summary.cashBalance))
-                        MetricItem("Buying Power", "$%,.2f".format(summary.buyingPower))
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        val isRealizedPos = summary.totalRealizedPnL >= 0
-                        MetricItem(
-                            "Realized P&L",
-                            "${if (isRealizedPos) "+" else ""}$${"%,.2f".format(summary.totalRealizedPnL)}",
-                            if (isRealizedPos) BullGreen else BearRed
-                        )
-                        MetricItem(
-                            "Win Rate",
-                            "${"%.1f".format(summary.winRatePercent)}% (${summary.totalTradesCount} trades)",
-                            M3Primary
-                        )
                     }
                 }
             }
         }
 
-        // 2. Portfolio Section Tabs
+        // Open Positions
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(SurfaceElevated)
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                PortfolioSectionTab(
-                    title = "Positions (${positions.size})",
-                    isSelected = selectedSection == 0,
-                    onClick = { selectedSection = 0 },
-                    modifier = Modifier.weight(1f)
-                )
-                PortfolioSectionTab(
-                    title = "Open Orders (${openOrders.size})",
-                    isSelected = selectedSection == 1,
-                    onClick = { selectedSection = 1 },
-                    modifier = Modifier.weight(1.1f)
-                )
-                PortfolioSectionTab(
-                    title = "Trade Ledger (${tradeHistory.size})",
-                    isSelected = selectedSection == 2,
-                    onClick = { selectedSection = 2 },
-                    modifier = Modifier.weight(1.2f)
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
+            Text("Open Positions (${positions.size})", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
 
-        // 3. Section Content
-        when (selectedSection) {
-            0 -> {
-                // Active Positions List
-                if (positions.isEmpty()) {
-                    item {
-                        EmptyPlaceholder(
-                            icon = Icons.Default.ShowChart,
-                            title = "No Open Positions",
-                            subtitle = "Place a Buy order on any stock in the Terminal to start building positions."
-                        )
-                    }
-                } else {
-                    items(positions, key = { it.symbol }) { pos ->
-                        val currentPrice = quotesMap[pos.symbol]?.price ?: pos.averagePrice
-                        val marketValue = pos.shares * currentPrice
-                        val uPnL = marketValue - pos.totalCost
-                        val uPnLPct = if (pos.totalCost > 0) (uPnL / pos.totalCost) * 100.0 else 0.0
-                        val isGain = uPnL >= 0
+        if (positions.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .background(DarkSurface, RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No active positions. Execute orders from Dashboard.", color = TextMuted, fontSize = 12.sp)
+                }
+            }
+        } else {
+            items(positions) { pos ->
+                val isLong = pos.side == OrderSide.BUY
+                val isPnlPos = pos.pnl >= 0
 
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark),
-                            shape = RoundedCornerShape(20.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable {
-                                    viewModel.selectSymbol(pos.symbol)
-                                    onNavigateToTerminal()
-                                }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Text(pos.symbol, color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                        Text(
-                                            "${"%.2f".format(pos.shares)} Shares",
-                                            color = M3Primary,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(M3SecondaryContainer)
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        Text(
-                                            text = "${if (isGain) "+" else ""}$${"%,.2f".format(uPnL)}",
-                                            color = if (isGain) BullGreen else BearRed,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                        Text(
-                                            text = "(${if (isGain) "+" else ""}${"%.2f".format(uPnLPct)}%)",
-                                            color = if (isGain) BullGreen else BearRed,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(pos.symbol, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = SurfaceElevated
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isLong) BullishGreen.copy(alpha = 0.15f) else BearishRed.copy(alpha = 0.15f)
                                 ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column {
-                                            Text("Avg Price", color = TextMuted, fontSize = 10.sp)
-                                            Text("$${"%.2f".format(pos.averagePrice)}", color = TextPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                                        }
-                                        Column {
-                                            Text("Current Price", color = TextMuted, fontSize = 10.sp)
-                                            Text("$${"%.2f".format(currentPrice)}", color = TextPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                                        }
-                                        Column {
-                                            Text("Market Value", color = TextMuted, fontSize = 10.sp)
-                                            Text("$${"%,.2f".format(marketValue)}", color = TextPrimary, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                                        }
-                                    }
+                                    Text(
+                                        "${if (isLong) "LONG" else "SHORT"} ${pos.leverage.toInt()}x",
+                                        color = if (isLong) BullishGreen else BearishRed,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
                                 }
+                            }
 
-                                Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = { viewModel.closePosition(pos.id) },
+                                colors = ButtonDefaults.buttonColors(containerColor = BearishRed.copy(alpha = 0.2f)),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("Close", color = BearishRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
 
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            viewModel.selectSymbol(pos.symbol)
-                                            onNavigateToTerminal()
-                                        },
-                                        shape = RoundedCornerShape(50),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(36.dp)
-                                    ) {
-                                        Text("Chart / Trade", fontSize = 11.sp, color = M3Primary)
-                                    }
-
-                                    Button(
-                                        onClick = { viewModel.marketClosePosition(pos.symbol) },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = BearRed,
-                                            contentColor = Color.White
-                                        ),
-                                        shape = RoundedCornerShape(50),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(36.dp)
-                                    ) {
-                                        Text("Market Close", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text("Size: ${pos.quantity}", color = TextSecondary, fontSize = 11.sp)
+                                Text("Entry: \$${String.format("%.2f", pos.entryPrice)}", color = TextMuted, fontSize = 11.sp)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    "${if (isPnlPos) "+" else ""}\$${String.format("%.2f", pos.pnl)}",
+                                    color = if (isPnlPos) BullishGreen else BearishRed,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    "${if (isPnlPos) "+" else ""}${String.format("%.2f", pos.pnlPercentage)}%",
+                                    color = if (isPnlPos) BullishGreen else BearishRed,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
                         }
                     }
                 }
             }
-
-            1 -> {
-                // Open Pending Orders List
-                if (openOrders.isEmpty()) {
-                    item {
-                        EmptyPlaceholder(
-                            icon = Icons.Default.FormatListBulleted,
-                            title = "No Open Orders",
-                            subtitle = "Pending Limit and Stop orders will appear here until triggered."
-                        )
-                    }
-                } else {
-                    items(openOrders, key = { it.orderId }) { order ->
-                        OpenOrderCard(
-                            order = order,
-                            onCancel = { viewModel.cancelOrder(order.orderId) }
-                        )
-                    }
-                }
-            }
-
-            2 -> {
-                // Completed Trades Ledger
-                if (tradeHistory.isEmpty()) {
-                    item {
-                        EmptyPlaceholder(
-                            icon = Icons.Default.ReceiptLong,
-                            title = "No Trade History Yet",
-                            subtitle = "Filled executions and closed round-trips will be permanently recorded here."
-                        )
-                    }
-                } else {
-                    items(tradeHistory, key = { it.tradeId }) { trade ->
-                        TradeLedgerCard(trade = trade)
-                    }
-                }
-            }
         }
-    }
-}
 
-@Composable
-private fun MetricItem(label: String, value: String, valueColor: Color = TextPrimary) {
-    Column {
-        Text(label, color = TextSecondary, fontSize = 11.sp)
-        Text(value, color = valueColor, fontSize = 15.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-    }
-}
+        // Order History
+        item {
+            Text("Order Log (${orders.size})", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
 
-@Composable
-private fun PortfolioSectionTab(
-    title: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = if (isSelected) M3PrimaryContainer else Color.Transparent,
-        modifier = modifier
-            .clickable { onClick() }
-    ) {
-        Text(
-            text = title,
-            color = if (isSelected) M3OnPrimaryContainer else TextSecondary,
-            fontSize = 11.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            modifier = Modifier
-                .padding(vertical = 7.dp)
-                .wrapContentWidth(Alignment.CenterHorizontally)
-        )
-    }
-}
-
-@Composable
-private fun OpenOrderCard(
-    order: OrderEntity,
-    onCancel: () -> Unit
-) {
-    val isBuy = order.side == OrderSide.BUY.name
-    val sideColor = if (isBuy) BullGreen else BearRed
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark),
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(order.symbol, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isBuy) BullGreenBg else BearRedBg
-                    ) {
-                        Text(
-                            order.side,
-                            color = sideColor,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                        )
-                    }
-                    Text(order.type, color = TextSecondary, fontSize = 11.sp)
-                }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    "Qty: ${"%.2f".format(order.quantity)} | Price: $${"%.2f".format(order.limitPrice ?: order.stopPrice ?: 0.0)}",
-                    color = TextSecondary,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-
-            Button(
-                onClick = onCancel,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = BearRedBg,
-                    contentColor = BearRed
-                ),
-                shape = RoundedCornerShape(50),
-                modifier = Modifier.height(34.dp)
+        items(orders) { order ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = DarkSurface)
             ) {
-                Text("Cancel", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-@Composable
-private fun TradeLedgerCard(
-    trade: TradeLedgerEntity
-) {
-    val isGain = trade.realizedPnL >= 0
-    val pnlColor = if (isGain) BullGreen else BearRed
-    val timeStr = SimpleDateFormat("MMM dd HH:mm:ss", Locale.getDefault()).format(Date(trade.timestamp))
-    val isBuy = trade.side == OrderSide.BUY.name
-    val sideColor = if (isBuy) BullGreen else BearRed
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark),
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(trade.symbol, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isBuy) BullGreenBg else BearRedBg
-                    ) {
-                        Text(
-                            trade.side,
-                            color = sideColor,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                        )
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(order.symbol, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                order.side.name,
+                                color = if (order.side == OrderSide.BUY) BullishGreen else BearishRed,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text("${order.type.name} • ${order.quantity} shares", color = TextSecondary, fontSize = 11.sp)
                     }
-                    Text(
-                        "${"%.2f".format(trade.quantity)} shares",
-                        color = TextSecondary,
-                        fontSize = 11.sp
-                    )
-                }
-                Text(
-                    "Exec @ $${"%.2f".format(trade.executionPrice)} ($${"%,.2f".format(trade.totalAmount)})",
-                    color = TextSecondary,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-                Text(timeStr, color = TextMuted, fontSize = 10.sp)
-            }
 
-            Column(horizontalAlignment = Alignment.End) {
-                if (trade.realizedPnL != 0.0) {
-                    Text(
-                        text = "${if (isGain) "+" else ""}$${"%,.2f".format(trade.realizedPnL)}",
-                        color = pnlColor,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("\$${String.format("%.2f", order.price)}", color = TextPrimary, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                        Text(order.status, color = BullishGreen, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
-                Text(
-                    text = "Fee: $${"%.2f".format(trade.fee)}",
-                    color = TextMuted,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
-                )
             }
-        }
-    }
-}
-
-@Composable
-private fun EmptyPlaceholder(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    subtitle: String
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(32.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(title, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(subtitle, color = TextSecondary, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
 }

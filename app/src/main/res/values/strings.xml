@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">BraxTradings</string>
+    <string name="notification_channel_name">Stock Price Alerts</string>
+    <string name="notification_channel_desc">Real-time alerts when instruments reach your target prices</string>
 </resources>
