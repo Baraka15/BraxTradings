@@ -1,0 +1,6 @@
+{
+  "name": "BraxTradings",
+  "description": "Real-time stock analysis, live market feeds, OMS matching engine, risk controls, and personalized market alerts for day traders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
