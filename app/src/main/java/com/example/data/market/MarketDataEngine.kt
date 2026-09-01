@@ -26,12 +26,37 @@ class MarketDataEngine {
     private val _isStreaming = MutableStateFlow(true)
     val isStreaming: StateFlow<Boolean> = _isStreaming.asStateFlow()
 
+    private val _priceDirections = MutableStateFlow<Map<String, PriceDirection>>(emptyMap())
+    val priceDirections: StateFlow<Map<String, PriceDirection>> = _priceDirections.asStateFlow()
+
+    private val _streamIntervalMs = MutableStateFlow(800L)
+    val streamIntervalMs: StateFlow<Long> = _streamIntervalMs.asStateFlow()
+
+    private val _transportMode = MutableStateFlow(StreamTransportMode.WEBSOCKET)
+    val transportMode: StateFlow<StreamTransportMode> = _transportMode.asStateFlow()
+
+    private val _tickerStreamInfo = MutableStateFlow(
+        TickerStreamInfo(
+            isStreaming = true,
+            transportMode = StreamTransportMode.WEBSOCKET,
+            intervalMs = 800L,
+            totalTicksReceived = 0L,
+            latencyMs = 14L,
+            isConnected = true,
+            lastTickTimestamp = System.currentTimeMillis()
+        )
+    )
+    val tickerStreamInfo: StateFlow<TickerStreamInfo> = _tickerStreamInfo.asStateFlow()
+
+    private var streamJob: Job? = null
+
     init {
         initializeMarkets()
         startDataStream()
     }
 
     private fun initializeMarkets() {
+
         val initialList = listOf(
             Instrument("NVDA", "NVIDIA Corporation", "STOCKS", 124.80, 3.25, 128.5, 121.0, 4850000000.0),
             Instrument("AAPL", "Apple Inc.", "STOCKS", 228.40, 1.15, 231.2, 226.0, 3100000000.0),
@@ -77,17 +102,22 @@ class MarketDataEngine {
     }
 
     private fun startDataStream() {
-        scope.launch {
+        streamJob?.cancel()
+        streamJob = scope.launch {
             while (isActive) {
                 if (_isStreaming.value) {
                     simulateTick()
                 }
-                delay(800L)
+                val interval = _streamIntervalMs.value
+                delay(interval)
             }
         }
     }
 
-    private fun simulateTick() {
+    fun simulateTick() {
+        val currentMap = _instruments.value.associateBy { it.symbol }
+        val newDirections = mutableMapOf<String, PriceDirection>()
+
         val updated = _instruments.value.map { inst ->
             // Random fluctuation between -0.35% and +0.38%
             val pctDelta = Random.nextDouble(-0.0035, 0.0038)
@@ -95,6 +125,14 @@ class MarketDataEngine {
             val newHigh = maxOf(inst.high24h, newPrice)
             val newLow = minOf(inst.low24h, newPrice)
             val newSpark = inst.sparkline.drop(1) + listOf(newPrice)
+
+            val dir = when {
+                newPrice > inst.currentPrice -> PriceDirection.UP
+                newPrice < inst.currentPrice -> PriceDirection.DOWN
+                else -> PriceDirection.NEUTRAL
+            }
+            newDirections[inst.symbol] = dir
+
             inst.copy(
                 currentPrice = newPrice,
                 change24h = inst.change24h + (pctDelta * 8),
@@ -103,6 +141,7 @@ class MarketDataEngine {
                 sparkline = newSpark
             )
         }
+        _priceDirections.value = newDirections
         _instruments.value = updated
 
         val activeSym = _selectedSymbol.value
@@ -111,6 +150,23 @@ class MarketDataEngine {
             updateOrderBookAndTrades(activeInst.symbol, activeInst.currentPrice)
             updateLiveCandle(activeInst.symbol, activeInst.currentPrice)
         }
+
+        val currentInfo = _tickerStreamInfo.value
+        val simulatedLatency = if (_transportMode.value == StreamTransportMode.WEBSOCKET) {
+            Random.nextLong(8L, 22L)
+        } else {
+            Random.nextLong(35L, 75L)
+        }
+
+        _tickerStreamInfo.value = currentInfo.copy(
+            isStreaming = _isStreaming.value,
+            transportMode = _transportMode.value,
+            intervalMs = _streamIntervalMs.value,
+            totalTicksReceived = currentInfo.totalTicksReceived + 1,
+            latencyMs = simulatedLatency,
+            isConnected = _isStreaming.value,
+            lastTickTimestamp = System.currentTimeMillis()
+        )
     }
 
     private fun updateOrderBookAndTrades(symbol: String, price: Double) {
@@ -188,6 +244,25 @@ class MarketDataEngine {
     }
 
     fun toggleStreaming() {
-        _isStreaming.value = !_isStreaming.value
+        val next = !_isStreaming.value
+        _isStreaming.value = next
+        _tickerStreamInfo.value = _tickerStreamInfo.value.copy(
+            isStreaming = next,
+            isConnected = next
+        )
+    }
+
+    fun setStreamInterval(intervalMs: Long) {
+        _streamIntervalMs.value = intervalMs
+        startDataStream()
+    }
+
+    fun setTransportMode(mode: StreamTransportMode) {
+        _transportMode.value = mode
+        _tickerStreamInfo.value = _tickerStreamInfo.value.copy(transportMode = mode)
+    }
+
+    fun refreshTickNow() {
+        simulateTick()
     }
 }

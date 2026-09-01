@@ -22,7 +22,9 @@ import com.example.domain.trading.*
 import com.example.ui.TradingViewModel
 import com.example.ui.components.CreatePriceAlertDialog
 import com.example.ui.components.OrderBookAndTapeView
-import com.example.ui.components.RealtimeCandleChart
+import com.example.ui.components.RealTimePriceTickerRibbon
+import com.example.ui.components.TradingViewAdvancedSuite
+import com.example.ui.components.TradingViewInteractiveChart
 import com.example.ui.components.SparklineView
 import com.example.ui.theme.*
 
@@ -41,6 +43,9 @@ fun DashboardScreen(
     val balance by viewModel.balance.collectAsState()
     val isStreaming by viewModel.isStreaming.collectAsState()
     val alerts by viewModel.alerts.collectAsState()
+    val priceDirections by viewModel.priceDirections.collectAsState()
+    val streamInfo by viewModel.tickerStreamInfo.collectAsState()
+
 
     var selectedTab by remember { mutableStateOf("ALL") }
     var orderQuantity by remember { mutableStateOf("1.0") }
@@ -119,7 +124,7 @@ fun DashboardScreen(
                                         .background(if (isStreaming) BullishGreen else TextMuted, RoundedCornerShape(4.dp))
                                 )
                                 Text(
-                                    if (isStreaming) "LIVE" else "PAUSED",
+                                    if (isStreaming) "LIVE FEED" else "PAUSED",
                                     color = if (isStreaming) BullishGreen else TextMuted,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
@@ -131,133 +136,49 @@ fun DashboardScreen(
             }
         }
 
-        // Active Stock / Crypto Header & Real-time Chart
+        // Real-Time Dynamic Price Ticker Component (WebSocket / Polling)
         item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    activeInstrument?.symbol ?: "NVDA",
-                                    color = TextPrimary,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = AccentCyan.copy(alpha = 0.15f)
-                                ) {
-                                    Text(
-                                        activeInstrument?.category ?: "STOCKS",
-                                        color = AccentCyan,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                activeInstrument?.name ?: "NVIDIA Corporation",
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
+            RealTimePriceTickerRibbon(
+                instruments = instruments,
+                selectedSymbol = selectedSymbol,
+                priceDirections = priceDirections,
+                streamInfo = streamInfo,
+                onSelectSymbol = { sym -> viewModel.selectSymbol(sym) },
+                onToggleStreaming = { viewModel.toggleStreaming() },
+                onSetInterval = { interval -> viewModel.setStreamInterval(interval) },
+                onSetTransportMode = { mode -> viewModel.setTransportMode(mode) },
+                onManualRefreshTick = { viewModel.refreshTickNow() },
+                onOpenCreateAlert = { inst -> showAlertDialogForInstrument = inst }
+            )
+        }
 
-                        val change = activeInstrument?.change24h ?: 0.0
-                        val isPositive = change >= 0
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                "\$${String.format("%.2f", activeInstrument?.currentPrice ?: 0.0)}",
-                                color = if (isPositive) BullishGreen else BearishRed,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Text(
-                                "${if (isPositive) "+" else ""}${String.format("%.2f", change)}%",
-                                color = if (isPositive) BullishGreen else BearishRed,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+        // TradingView Interactive Chart Suite
+        item {
+            TradingViewInteractiveChart(
+                symbol = activeInstrument?.symbol ?: "NVDA",
+                instrumentName = activeInstrument?.name ?: "NVIDIA Corporation",
+                currentPrice = activeInstrument?.currentPrice ?: 124.50,
+                change24h = activeInstrument?.change24h ?: 0.0,
+                candles = currentCandles,
+                selectedTimeFrame = timeFrame,
+                onSelectTimeFrame = { tf -> viewModel.selectTimeFrame(tf) },
+                alertPriceTargets = alertTargets
+            )
+        }
+
+        // TradingView Pro Advanced Suite (DOM Level 2 Ladder, Technical Screener, Whale Radar)
+        item {
+            activeInstrument?.let { inst ->
+                TradingViewAdvancedSuite(
+                    instruments = instruments,
+                    selectedInstrument = inst,
+                    orderBook = orderBook,
+                    recentTrades = recentTrades,
+                    onSelectSymbol = { sym -> viewModel.selectSymbol(sym) },
+                    onPlaceLimitOrder = { side, price, qty ->
+                        viewModel.placeOrder(inst.symbol, side, OrderType.LIMIT, qty, price = price, leverage = leverage)
                     }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Timeframe Selectors + Quick Alert Trigger Button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            TimeFrame.values().forEach { tf ->
-                                val isSelected = tf == timeFrame
-                                Surface(
-                                    modifier = Modifier
-                                        .clickable { viewModel.selectTimeFrame(tf) }
-                                        .height(28.dp),
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (isSelected) AccentCyan else DarkSurfaceElevated
-                                ) {
-                                    Box(
-                                        modifier = Modifier.padding(horizontal = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            tf.label,
-                                            color = if (isSelected) DarkBackground else TextSecondary,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Button to trigger price alert creation
-                        Surface(
-                            modifier = Modifier
-                                .height(28.dp)
-                                .clickable {
-                                    if (activeInstrument != null) {
-                                        showAlertDialogForInstrument = activeInstrument
-                                    }
-                                },
-                            shape = RoundedCornerShape(6.dp),
-                            color = AccentGold.copy(alpha = 0.2f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = AccentGold, modifier = Modifier.size(14.dp))
-                                Text("Set Alert", color = AccentGold, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Real-time Candlestick Chart with alert price targets
-                    RealtimeCandleChart(
-                        candles = currentCandles,
-                        alertPriceTargets = alertTargets,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                    )
-                }
+                )
             }
         }
 

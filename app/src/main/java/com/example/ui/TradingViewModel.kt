@@ -20,6 +20,10 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
     val orderBook = marketEngine.orderBook
     val recentTrades = marketEngine.recentTrades
     val isStreaming = marketEngine.isStreaming
+    val priceDirections = marketEngine.priceDirections
+    val tickerStreamInfo = marketEngine.tickerStreamInfo
+    val streamIntervalMs = marketEngine.streamIntervalMs
+    val transportMode = marketEngine.transportMode
 
     private val _selectedTimeFrame = MutableStateFlow(TimeFrame.M5)
     val selectedTimeFrame: StateFlow<TimeFrame> = _selectedTimeFrame.asStateFlow()
@@ -435,10 +439,12 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
         side: OrderSide,
         type: OrderType,
         quantity: Double,
+        price: Double? = null,
         leverage: Double = 1.0
     ) {
         val currentPrice = instruments.value.find { it.symbol == symbol }?.currentPrice ?: return
-        val requiredMargin = (currentPrice * quantity) / leverage
+        val executionPrice = if (type == OrderType.LIMIT && price != null) price else currentPrice
+        val requiredMargin = (executionPrice * quantity) / leverage
 
         if (_balance.value < requiredMargin) {
             viewModelScope.launch {
@@ -453,7 +459,7 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
             side = side,
             type = type,
             quantity = quantity,
-            price = currentPrice,
+            price = executionPrice,
             status = "FILLED"
         )
         _orders.value = listOf(order) + _orders.value
@@ -464,7 +470,7 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
             symbol = symbol,
             side = side,
             quantity = quantity,
-            entryPrice = currentPrice,
+            entryPrice = executionPrice,
             currentPrice = currentPrice,
             pnl = 0.0,
             pnlPercentage = 0.0,
@@ -473,7 +479,7 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
         _positions.value = listOf(newPosition) + _positions.value
 
         viewModelScope.launch {
-            _toastMessage.emit("✅ Order filled: ${side.name} $quantity $symbol @ \$${String.format("%.2f", currentPrice)}")
+            _toastMessage.emit("✅ ${type.name} Order filled: ${side.name} $quantity $symbol @ \$${String.format("%.2f", executionPrice)}")
         }
     }
 
@@ -548,4 +554,20 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
             _toastMessage.emit("🛡️ Daily Loss Circuit Breaker updated to \$${String.format("%,.0f", newLimit)}")
         }
     }
+
+    fun setStreamInterval(intervalMs: Long) {
+        marketEngine.setStreamInterval(intervalMs)
+    }
+
+    fun setTransportMode(mode: StreamTransportMode) {
+        marketEngine.setTransportMode(mode)
+        viewModelScope.launch {
+            _toastMessage.emit("Switched feed to ${mode.label}")
+        }
+    }
+
+    fun refreshTickNow() {
+        marketEngine.refreshTickNow()
+    }
 }
+

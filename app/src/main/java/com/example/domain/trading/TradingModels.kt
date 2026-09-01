@@ -140,3 +140,23 @@ data class AccountRiskMetrics(
     val riskLevel: RiskAlertLevel,
     val closestLiquidationDistancePct: Double
 )
+
+enum class PriceDirection {
+    UP, DOWN, NEUTRAL
+}
+
+enum class StreamTransportMode(val label: String, val badge: String) {
+    WEBSOCKET("WebSocket (Push)", "WS LIVE"),
+    POLLING("HTTP Polling (Pull)", "POLL LIVE")
+}
+
+data class TickerStreamInfo(
+    val isStreaming: Boolean,
+    val transportMode: StreamTransportMode,
+    val intervalMs: Long,
+    val totalTicksReceived: Long,
+    val latencyMs: Long,
+    val isConnected: Boolean,
+    val lastTickTimestamp: Long
+)
+
