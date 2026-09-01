@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,21 +24,26 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.example.domain.trading.RiskAlertLevel
 import com.example.ui.TradingViewModel
 import com.example.ui.components.TriggeredAlertBanner
 import com.example.ui.screens.AlertsScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.PortfolioScreen
+import com.example.ui.screens.RiskDashboardScreen
 import com.example.ui.theme.BraxTradingsTheme
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkSurfaceElevated
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.BullishGreen
+import com.example.ui.theme.BearishRed
+import com.example.ui.theme.AccentOrange
 import kotlinx.coroutines.flow.collectLatest
 
 enum class MainNavigationTab(val title: String) {
     MARKETS("Markets"),
-    ALERTS("Price Alerts"),
+    RISK("Risk"),
+    ALERTS("Alerts"),
     PORTFOLIO("Portfolio")
 }
 
@@ -91,6 +97,8 @@ class MainActivity : ComponentActivity() {
                 val triggeredAlertBanner by viewModel.triggeredAlertBanner.collectAsState()
                 val alerts by viewModel.alerts.collectAsState()
                 val activeAlertsCount = alerts.count { it.isEnabled && !it.isTriggered }
+                val riskMetrics by viewModel.accountRiskMetrics.collectAsState()
+                val isHighRisk = riskMetrics.riskLevel == RiskAlertLevel.HIGH_RISK || riskMetrics.riskLevel == RiskAlertLevel.CRITICAL_MARGIN_CALL
 
                 Scaffold(
                     snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -103,7 +111,31 @@ class MainActivity : ComponentActivity() {
                                 selected = currentTab == MainNavigationTab.MARKETS,
                                 onClick = { currentTab = MainNavigationTab.MARKETS },
                                 icon = { Icon(Icons.Default.ShowChart, contentDescription = "Markets") },
-                                label = { Text("Markets", fontSize = 11.sp) },
+                                label = { Text("Markets", fontSize = 10.sp) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = AccentCyan,
+                                    selectedTextColor = AccentCyan,
+                                    indicatorColor = DarkBackground
+                                )
+                            )
+
+                            NavigationBarItem(
+                                selected = currentTab == MainNavigationTab.RISK,
+                                onClick = { currentTab = MainNavigationTab.RISK },
+                                icon = {
+                                    BadgedBox(
+                                        badge = {
+                                            if (isHighRisk) {
+                                                Badge(containerColor = BearishRed) {
+                                                    Text("!", color = Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Icon(Icons.Default.Shield, contentDescription = "Risk & Exposure")
+                                    }
+                                },
+                                label = { Text("Risk", fontSize = 10.sp) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = AccentCyan,
                                     selectedTextColor = AccentCyan,
@@ -127,7 +159,7 @@ class MainActivity : ComponentActivity() {
                                         Icon(Icons.Default.NotificationsActive, contentDescription = "Price Alerts")
                                     }
                                 },
-                                label = { Text("Alerts", fontSize = 11.sp) },
+                                label = { Text("Alerts", fontSize = 10.sp) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = AccentCyan,
                                     selectedTextColor = AccentCyan,
@@ -139,7 +171,7 @@ class MainActivity : ComponentActivity() {
                                 selected = currentTab == MainNavigationTab.PORTFOLIO,
                                 onClick = { currentTab = MainNavigationTab.PORTFOLIO },
                                 icon = { Icon(Icons.Default.Analytics, contentDescription = "Portfolio") },
-                                label = { Text("Portfolio", fontSize = 11.sp) },
+                                label = { Text("Portfolio", fontSize = 10.sp) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = AccentCyan,
                                     selectedTextColor = AccentCyan,
@@ -170,6 +202,9 @@ class MainActivity : ComponentActivity() {
                                 MainNavigationTab.MARKETS -> DashboardScreen(
                                     viewModel = viewModel,
                                     onNavigateToAlerts = { currentTab = MainNavigationTab.ALERTS }
+                                )
+                                MainNavigationTab.RISK -> RiskDashboardScreen(
+                                    viewModel = viewModel
                                 )
                                 MainNavigationTab.ALERTS -> AlertsScreen(
                                     viewModel = viewModel,

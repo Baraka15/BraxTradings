@@ -94,3 +94,49 @@ data class StockPriceAlert(
     val triggerPrice: Double? = null,
     val createdAt: Long = System.currentTimeMillis()
 )
+
+enum class RiskAlertLevel(val label: String, val description: String) {
+    SAFE("Optimal / Safe", "Margin utilization is well within conservative day-trading limits"),
+    ELEVATED("Elevated Exposure", "Exposure is moderate; monitor stop-losses and market volatility"),
+    HIGH_RISK("High Risk Alert", "High leverage or margin usage; approaching maximum safe threshold"),
+    CRITICAL_MARGIN_CALL("Margin Call Danger", "Immediate risk of liquidation; reduce position sizes immediately")
+}
+
+data class ExposureSlice(
+    val id: String,
+    val label: String,
+    val subLabel: String,
+    val notionalValue: Double,
+    val percentage: Double,
+    val colorHex: Long
+)
+
+data class PositionRiskAssessment(
+    val position: Position,
+    val instrument: Instrument?,
+    val notionalExposure: Double,
+    val marginAllocated: Double,
+    val exposureSharePct: Double,
+    val liquidationPrice: Double,
+    val distToLiquidationPct: Double,
+    val var95Risk: Double,
+    val riskScore: Int
+)
+
+data class AccountRiskMetrics(
+    val totalEquity: Double,
+    val usedMargin: Double,
+    val freeMargin: Double,
+    val marginUtilizationPct: Double,
+    val grossNotionalExposure: Double,
+    val netExposure: Double,
+    val longExposure: Double,
+    val shortExposure: Double,
+    val effectiveLeverage: Double,
+    val valueAtRisk95: Double,
+    val dailyLossLimit: Double,
+    val currentDailyPnL: Double,
+    val dailyLossUtilizationPct: Double,
+    val riskLevel: RiskAlertLevel,
+    val closestLiquidationDistancePct: Double
+)
