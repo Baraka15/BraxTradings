@@ -10,35 +10,55 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
+import androidx.compose.material3.lightColorScheme
+
 private val DarkColorScheme = darkColorScheme(
-    primary = BlueAccent,
-    secondary = CyanAccent,
-    tertiary = GreenBullish,
-    background = DarkBg,
-    surface = CardBg,
-    surfaceVariant = SurfaceDark,
-    onPrimary = TextPrimary,
-    onSecondary = TextPrimary,
-    onBackground = TextPrimary,
-    onSurface = TextPrimary,
-    onSurfaceVariant = TextSecondary,
-    outline = CardBorder,
-    error = RedBearish
+    primary = TvBlue,
+    secondary = TvGreen,
+    tertiary = TvRed,
+    background = TvBackground,
+    surface = TvPanel,
+    surfaceVariant = TvBackground,
+    onPrimary = TvTextPrimary,
+    onSecondary = TvTextPrimary,
+    onBackground = TvTextPrimary,
+    onSurface = TvTextPrimary,
+    onSurfaceVariant = TvTextSecondary,
+    outline = TvDivider,
+    error = TvRed
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = TvBlue,
+    secondary = TvGreen,
+    tertiary = TvRed,
+    background = TvLightBackground,
+    surface = TvLightPanel,
+    surfaceVariant = TvLightBackground,
+    onPrimary = TvLightTextPrimary,
+    onSecondary = TvLightTextPrimary,
+    onBackground = TvLightTextPrimary,
+    onSurface = TvLightTextPrimary,
+    onSurfaceVariant = TvLightTextSecondary,
+    outline = TvLightDivider,
+    error = TvRed
 )
 
 @Composable
 fun BraxTradingsTheme(
-    darkTheme: Boolean = true,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val colorScheme = DarkColorScheme
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = DarkBg.toArgb()
-            window.navigationBarColor = DarkBg.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
+            val bgColor = if (darkTheme) TvBackground.toArgb() else TvLightBackground.toArgb()
+            window.statusBarColor = bgColor
+            window.navigationBarColor = bgColor
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !darkTheme
         }
     }
 

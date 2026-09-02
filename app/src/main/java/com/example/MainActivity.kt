@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -23,8 +24,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            BraxTradingsTheme {
-                MainAppScreen()
+            val viewModel: TradingViewModel = viewModel()
+            val isDarkMode by viewModel.isDarkMode.collectAsState()
+            
+            BraxTradingsTheme(darkTheme = isDarkMode) {
+                MainAppScreen(viewModel)
             }
         }
     }
@@ -33,73 +37,81 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppScreen(
-    viewModel: TradingViewModel = viewModel()
+    viewModel: TradingViewModel
 ) {
-    var selectedScreen by remember { mutableStateOf(0) }
+    var selectedScreen by remember { mutableStateOf(1) } // Default to Chart
 
     Scaffold(
-        containerColor = DarkBg,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row {
-                        Text("Brax", fontWeight = FontWeight.Black, fontSize = 20.sp, color = BlueAccent)
-                        Text("Tradings", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextPrimary)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DarkBg,
-                    titleContentColor = TextPrimary
-                )
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             NavigationBar(
-                containerColor = CardBg,
-                contentColor = TextPrimary
+                containerColor = MaterialTheme.colorScheme.background,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                tonalElevation = 0.dp
             ) {
                 NavigationBarItem(
                     selected = selectedScreen == 0,
                     onClick = { selectedScreen = 0 },
-                    icon = { Icon(Icons.Default.CandlestickChart, contentDescription = "Terminal") },
-                    label = { Text("Terminal", fontSize = 11.sp) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Watchlist") },
+                    label = { Text("Watchlist", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = BlueAccent,
-                        selectedTextColor = BlueAccent,
-                        indicatorColor = SurfaceDark
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        indicatorColor = MaterialTheme.colorScheme.background
                     )
                 )
                 NavigationBarItem(
                     selected = selectedScreen == 1,
                     onClick = { selectedScreen = 1 },
-                    icon = { Icon(Icons.Default.Notifications, contentDescription = "Alerts") },
-                    label = { Text("Alerts", fontSize = 11.sp) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = "Chart") },
+                    label = { Text("Chart", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = BlueAccent,
-                        selectedTextColor = BlueAccent,
-                        indicatorColor = SurfaceDark
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        indicatorColor = MaterialTheme.colorScheme.background
                     )
                 )
                 NavigationBarItem(
                     selected = selectedScreen == 2,
                     onClick = { selectedScreen = 2 },
-                    icon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = "Portfolio") },
-                    label = { Text("Portfolio", fontSize = 11.sp) },
+                    icon = { Icon(Icons.Default.Explore, contentDescription = "Explore") },
+                    label = { Text("Explore", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = BlueAccent,
-                        selectedTextColor = BlueAccent,
-                        indicatorColor = SurfaceDark
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        indicatorColor = MaterialTheme.colorScheme.background
                     )
                 )
                 NavigationBarItem(
                     selected = selectedScreen == 3,
                     onClick = { selectedScreen = 3 },
-                    icon = { Icon(Icons.Default.Shield, contentDescription = "Risk") },
-                    label = { Text("Risk Guard", fontSize = 11.sp) },
+                    icon = { Icon(Icons.Default.People, contentDescription = "Community") },
+                    label = { Text("Community", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = BlueAccent,
-                        selectedTextColor = BlueAccent,
-                        indicatorColor = SurfaceDark
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        indicatorColor = MaterialTheme.colorScheme.background
+                    )
+                )
+                NavigationBarItem(
+                    selected = selectedScreen == 4,
+                    onClick = { selectedScreen = 4 },
+                    icon = { Icon(Icons.Default.Menu, contentDescription = "Menu") },
+                    label = { Text("Menu", fontSize = 10.sp) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        indicatorColor = MaterialTheme.colorScheme.background
                     )
                 )
             }
@@ -111,13 +123,11 @@ fun MainAppScreen(
                 .padding(padding)
         ) {
             when (selectedScreen) {
-                0 -> DashboardScreen(
-                    viewModel = viewModel,
-                    onOpenAlerts = { selectedScreen = 1 }
-                )
-                1 -> AlertsScreen(viewModel = viewModel)
-                2 -> PortfolioScreen(viewModel = viewModel)
-                3 -> RiskDashboardScreen(viewModel = viewModel)
+                0 -> WatchlistScreen(viewModel = viewModel)
+                1 -> ChartScreen(viewModel = viewModel)
+                2 -> ExploreScreen(viewModel = viewModel)
+                3 -> CommunityScreen(viewModel = viewModel)
+                4 -> MenuScreen(viewModel = viewModel)
             }
         }
     }

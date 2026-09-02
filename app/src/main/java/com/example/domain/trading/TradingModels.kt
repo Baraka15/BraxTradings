@@ -110,6 +110,27 @@ data class TechnicalSignalSummary(
     val score: Float
 )
 
+data class CommunityPost(
+    val id: String,
+    val authorName: String,
+    val authorUsername: String,
+    val timeAgo: String,
+    val title: String,
+    val description: String,
+    val symbol: String,
+    val chartImageRes: Int? = null,
+    val likes: Int,
+    val comments: Int
+)
+
+data class ExploreNews(
+    val id: String,
+    val publisher: String,
+    val timeAgo: String,
+    val title: String,
+    val symbol: String? = null
+)
+
 data class DrawingShape(
     val id: String,
     val type: DrawingToolType,
