@@ -1,23 +1,25 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Create
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.ShowChart
-import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.TradingViewModel
 import com.example.ui.components.AdvancedChartCanvas
+import com.example.ui.components.TrendLine
 import com.example.ui.theme.*
 import java.util.Locale
 
@@ -30,70 +32,143 @@ fun ChartScreen(
     val selectedSymbol by viewModel.selectedSymbol.collectAsState()
     val timeframe by viewModel.timeframe.collectAsState()
     val candles by viewModel.candles.collectAsState()
+    
+    // Core drawing state
+    var isDrawingMode by remember { mutableStateOf(false) }
+    val drawnLines = remember { mutableStateListOf<TrendLine>() }
 
     val currentQuote = quotes.find { it.symbol == selectedSymbol }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        val isWide = maxWidth > 600.dp
+        val isWide = maxWidth > 800.dp
         
         Row(modifier = Modifier.fillMaxSize()) {
+            
+            // LEFT DRAWING TOOLBAR (Desktop Only - Exact TV Layout)
+            if (isWide) {
+                Column(
+                    modifier = Modifier
+                        .width(52.dp)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.surface),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    IconButton(onClick = { isDrawingMode = false }) {
+                        Icon(Icons.Default.NearMe, contentDescription = "Cursor", tint = if (!isDrawingMode) TvBlue else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    IconButton(onClick = { isDrawingMode = true }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Trend Line", tint = if (isDrawingMode) TvBlue else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    IconButton(onClick = { drawnLines.clear() }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Clear All", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                VerticalDivider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
+            }
+
+            // MAIN CHART AREA
             Column(modifier = Modifier.weight(1f)) {
-                // Chart Header
+                // Top Toolbar (Symbol + Scrollable Timeframes)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(selectedSymbol, color = MaterialTheme.colorScheme.onBackground, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(timeframe.label, color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                    }
+                    Text(
+                        selectedSymbol,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(start = 8.dp, end = 16.dp)
+                    )
                     
-                    if (currentQuote != null) {
-                        val color = if (currentQuote.change >= 0) TvGreen else TvRed
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(String.format(Locale.US, "%.3f", currentQuote.currentPrice), color = color, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        listOf("1m", "5m", "15m", "1h", "4h", "D", "W").forEach { tf ->
+                            val isSelected = timeframe.label == tf
                             Text(
-                                String.format(Locale.US, "%+.3f (%+.2f%%)", currentQuote.change, currentQuote.changePercent),
-                                color = color,
-                                fontSize = 12.sp
+                                text = tf,
+                                color = if (isSelected) TvBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 12.dp)
                             )
                         }
                     }
+                    
+                    Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = "Chart Type", tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(horizontal = 8.dp))
+                    Icon(Icons.Default.Add, contentDescription = "Compare", tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(horizontal = 8.dp))
                 }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
 
-                // Main Chart Canvas
+                // Main Chart Canvas with interactive Drawing Engine
                 Box(modifier = Modifier.weight(1f)) {
-                    AdvancedChartCanvas(candles = candles)
+                    AdvancedChartCanvas(
+                        candles = candles,
+                        isDrawingMode = isDrawingMode,
+                        drawnLines = drawnLines,
+                        onLineDrawn = { drawnLines.add(it) }
+                    )
                 }
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
 
-                // Bottom Toolbar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(vertical = 12.dp, horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Create, contentDescription = "Draw", tint = MaterialTheme.colorScheme.onBackground)
-                    Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = "Indicators", tint = MaterialTheme.colorScheme.onBackground)
-                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = MaterialTheme.colorScheme.onBackground)
-                    Icon(Icons.Default.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onBackground)
+                // Bottom Toolbar (Mobile Only)
+                if (!isWide) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(vertical = 12.dp, horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { isDrawingMode = !isDrawingMode }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Draw", tint = if (isDrawingMode) TvBlue else MaterialTheme.colorScheme.onBackground)
+                        }
+                        IconButton(onClick = { drawnLines.clear() }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onBackground)
+                        }
+                        Icon(Icons.Default.Notifications, contentDescription = "Alerts", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.Default.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onBackground)
+                    }
                 }
             }
-            
+
+            // RIGHT SIDEBAR (Market Watch / Tools)
             if (isWide) {
                 VerticalDivider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
-                Box(modifier = Modifier.width(300.dp)) {
-                    WatchlistScreen(viewModel = viewModel)
+                
+                Row(modifier = Modifier.width(360.dp).fillMaxHeight()) {
+                    // Market Watch Component Content
+                    Box(modifier = Modifier.weight(1f)) {
+                        WatchlistScreen(viewModel = viewModel)
+                    }
+                    
+                    VerticalDivider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
+                    
+                    // Far-Right TradingView Navigation Rail
+                    Column(
+                        modifier = Modifier
+                            .width(52.dp)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.surface),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Watchlist", tint = TvBlue, modifier = Modifier.padding(vertical = 12.dp))
+                        Icon(Icons.Default.Notifications, contentDescription = "Alerts", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+                        Icon(Icons.Default.Newspaper, contentDescription = "News", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+                        Icon(Icons.Default.LocalFireDepartment, contentDescription = "Hotlists", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+                        Icon(Icons.Default.CalendarMonth, contentDescription = "Calendar", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+                    }
                 }
             }
         }

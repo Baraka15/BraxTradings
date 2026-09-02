@@ -1,8 +1,9 @@
+#!/bin/bash
+cat << 'INNER_EOF' > app/src/main/java/com/example/ui/components/AdvancedChartCanvas.kt
 package com.example.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,81 +20,32 @@ import androidx.compose.ui.input.pointer.pointerInput
 import com.example.domain.trading.Candle
 import com.example.ui.theme.*
 import java.util.Locale
-
-data class TrendLine(
-    val startTime: Long,
-    val startPrice: Double,
-    val endTime: Long,
-    val endPrice: Double
-)
+import kotlin.math.abs
 
 @Composable
 fun AdvancedChartCanvas(
     candles: List<Candle>,
-    isDrawingMode: Boolean = false,
-    drawnLines: List<TrendLine> = emptyList(),
-    onLineDrawn: (TrendLine) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (candles.isEmpty()) return
 
+    // Theme Colors
     val bgColor = MaterialTheme.colorScheme.background
     val dividerColor = MaterialTheme.colorScheme.outline
-    val drawingColor = TvBlue
+    val isLight = MaterialTheme.colorScheme.background == TvLightBackground
 
+    // Gesture state
     var scaleX by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
-
-    var currentDragStart by remember { mutableStateOf<Offset?>(null) }
-    var currentDragEnd by remember { mutableStateOf<Offset?>(null) }
-
-    var currentChartWidth by remember { mutableFloatStateOf(0f) }
-    var currentChartHeight by remember { mutableFloatStateOf(0f) }
-    var currentBoundedOffset by remember { mutableFloatStateOf(0f) }
-    var currentTotalCandleWidth by remember { mutableFloatStateOf(0f) }
-    var currentChartMin by remember { mutableDoubleStateOf(0.0) }
-    var currentAdjustedRange by remember { mutableDoubleStateOf(0.0) }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(bgColor)
-            .pointerInput(isDrawingMode, candles) {
-                if (isDrawingMode) {
-                    detectDragGestures(
-                        onDragStart = { offset -> 
-                            currentDragStart = offset
-                            currentDragEnd = offset
-                        },
-                        onDrag = { change, _ ->
-                            currentDragEnd = change.position
-                        },
-                        onDragEnd = {
-                            val start = currentDragStart
-                            val end = currentDragEnd
-                            if (start != null && end != null && candles.isNotEmpty()) {
-                                // Convert Screen to Data coordinates for permanent anchoring
-                                val startGlobalX = currentChartWidth - start.x + currentBoundedOffset
-                                val startIdx = (startGlobalX / currentTotalCandleWidth).toInt().coerceIn(0, candles.size - 1)
-                                val startTime = candles[startIdx].timestamp
-                                val startPrice = currentChartMin + ((currentChartHeight - start.y) / currentChartHeight) * currentAdjustedRange
-
-                                val endGlobalX = currentChartWidth - end.x + currentBoundedOffset
-                                val endIdx = (endGlobalX / currentTotalCandleWidth).toInt().coerceIn(0, candles.size - 1)
-                                val endTime = candles[endIdx].timestamp
-                                val endPrice = currentChartMin + ((currentChartHeight - end.y) / currentChartHeight) * currentAdjustedRange
-
-                                onLineDrawn(TrendLine(startTime, startPrice, endTime, endPrice))
-                            }
-                            currentDragStart = null
-                            currentDragEnd = null
-                        }
-                    )
-                } else {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        scaleX = (scaleX * zoom).coerceIn(0.2f, 10f)
-                        offsetX -= pan.x
-                    }
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scaleX = (scaleX * zoom).coerceIn(0.2f, 10f)
+                    offsetX -= pan.x
                 }
             }
     ) {
@@ -105,12 +57,18 @@ fun AdvancedChartCanvas(
             val chartWidth = canvasWidth - priceAxisWidth
             val chartHeight = canvasHeight - timeAxisHeight
 
+            // Base dimensions per candle
             val defaultCandleWidth = 24f
             val actualCandleWidth = defaultCandleWidth * scaleX
             val candleSpacing = 6f * scaleX
+            
+            // Total width of one candle + spacing
             val totalCandleWidth = actualCandleWidth + candleSpacing
             
+            // Number of candles that can fit in the chart area
             val visibleCandlesCount = (chartWidth / totalCandleWidth).toInt() + 2
+            
+            // Calculate starting index based on offset (scroll)
             val maxOffset = (candles.size * totalCandleWidth) - chartWidth
             val boundedOffset = offsetX.coerceIn(0f, maxOffset.coerceAtLeast(0f))
             
@@ -120,26 +78,42 @@ fun AdvancedChartCanvas(
             
             val startIndex = (boundedOffset / totalCandleWidth).toInt().coerceIn(0, candles.size - 1)
             val endIndex = (startIndex + visibleCandlesCount).coerceAtMost(candles.size)
+            
             val visibleCandles = candles.subList(startIndex, endIndex)
             if (visibleCandles.isEmpty()) return@Canvas
 
+            // Find min/max price for the visible range to scale vertically
             val maxPrice = visibleCandles.maxOf { it.high }
             val minPrice = visibleCandles.minOf { it.low }
             val priceRange = maxPrice - minPrice
+            val maxVolume = visibleCandles.maxOf { it.volume }
+            
+            // Add 10% padding top and bottom
             val padding = priceRange * 0.1
             val chartMax = maxPrice + padding
             val chartMin = minPrice - padding
             val adjustedRange = chartMax - chartMin
 
-            currentChartWidth = chartWidth
-            currentChartHeight = chartHeight
-            currentBoundedOffset = boundedOffset
-            currentTotalCandleWidth = totalCandleWidth
-            currentChartMin = chartMin
-            currentAdjustedRange = adjustedRange
+            // Draw Background Grid
+            drawGrid(chartWidth, chartHeight, chartMin, chartMax, adjustedRange, dividerColor)
 
-            drawGrid(chartWidth, chartHeight, dividerColor)
+            // Draw Volume Bars (Bottom 25% of chart)
+            val volumeAreaHeight = chartHeight * 0.25f
+            visibleCandles.forEachIndexed { index, candle ->
+                val x = chartWidth - ((index * totalCandleWidth) + (boundedOffset % totalCandleWidth)) - totalCandleWidth
+                val color = if (candle.close >= candle.open) TvGreen else TvRed
+                
+                if (maxVolume > 0) {
+                    val volumeHeight = (candle.volume / maxVolume) * volumeAreaHeight
+                    drawRect(
+                        color = color.copy(alpha = 0.4f),
+                        topLeft = Offset(x, chartHeight - volumeHeight.toFloat()),
+                        size = Size(actualCandleWidth, volumeHeight.toFloat())
+                    )
+                }
+            }
 
+            // Draw Candles
             visibleCandles.forEachIndexed { index, candle ->
                 val x = chartWidth - ((index * totalCandleWidth) + (boundedOffset % totalCandleWidth)) - totalCandleWidth
                 
@@ -150,6 +124,7 @@ fun AdvancedChartCanvas(
 
                 val color = if (candle.close >= candle.open) TvGreen else TvRed
 
+                // Draw Wick
                 drawLine(
                     color = color,
                     start = Offset(x + actualCandleWidth / 2, highY),
@@ -157,9 +132,10 @@ fun AdvancedChartCanvas(
                     strokeWidth = 2f * scaleX.coerceAtMost(1.5f)
                 )
 
+                // Draw Body
                 val bodyTop = minOf(openY, closeY)
                 val bodyBottom = maxOf(openY, closeY)
-                val bodyHeight = maxOf(bodyBottom - bodyTop, 1f)
+                val bodyHeight = maxOf(bodyBottom - bodyTop, 1f) // Ensure at least 1px height
                 
                 drawRect(
                     color = color,
@@ -168,42 +144,7 @@ fun AdvancedChartCanvas(
                 )
             }
 
-            // Draw Anchored TrendLines
-            drawnLines.forEach { line ->
-                val startIdx = candles.indexOfFirst { it.timestamp == line.startTime }.takeIf { it >= 0 }
-                val endIdx = candles.indexOfFirst { it.timestamp == line.endTime }.takeIf { it >= 0 }
-                
-                if (startIdx != null && endIdx != null) {
-                    val startGlobalX = startIdx * totalCandleWidth
-                    val startScreenX = chartWidth - startGlobalX + boundedOffset - totalCandleWidth / 2
-                    val startScreenY = chartHeight - ((line.startPrice - chartMin) / adjustedRange * chartHeight).toFloat()
-
-                    val endGlobalX = endIdx * totalCandleWidth
-                    val endScreenX = chartWidth - endGlobalX + boundedOffset - totalCandleWidth / 2
-                    val endScreenY = chartHeight - ((line.endPrice - chartMin) / adjustedRange * chartHeight).toFloat()
-
-                    drawLine(
-                        color = drawingColor,
-                        start = Offset(startScreenX, startScreenY),
-                        end = Offset(endScreenX, endScreenY),
-                        strokeWidth = 4f
-                    )
-                }
-            }
-
-            // Draw live active drag line
-            val cStart = currentDragStart
-            val cEnd = currentDragEnd
-            if (cStart != null && cEnd != null) {
-                drawLine(
-                    color = drawingColor,
-                    start = cStart,
-                    end = cEnd,
-                    strokeWidth = 4f
-                )
-            }
-
-            // Draw Price Axis Background
+            // Draw Price Axis (Right)
             drawRect(
                 color = bgColor,
                 topLeft = Offset(chartWidth, 0f),
@@ -222,6 +163,7 @@ fun AdvancedChartCanvas(
             val tagColor = if (currentPrice >= candles.last().open) TvGreen else TvRed
             
             if (currentY in 0f..chartHeight) {
+                // Background tag
                 val path = Path().apply {
                     moveTo(chartWidth, currentY)
                     lineTo(chartWidth + 15f, currentY - 15f)
@@ -232,6 +174,7 @@ fun AdvancedChartCanvas(
                 }
                 drawPath(path, tagColor)
                 
+                // Draw text
                 val paint = android.graphics.Paint().apply {
                     this.color = android.graphics.Color.WHITE
                     textSize = 28f
@@ -249,7 +192,7 @@ fun AdvancedChartCanvas(
     }
 }
 
-private fun DrawScope.drawGrid(chartWidth: Float, chartHeight: Float, dividerColor: Color) {
+private fun DrawScope.drawGrid(chartWidth: Float, chartHeight: Float, minPrice: Double, maxPrice: Double, range: Double, dividerColor: Color) {
     val gridLines = 8
     for (i in 0..gridLines) {
         val y = (chartHeight / gridLines) * i
@@ -261,3 +204,4 @@ private fun DrawScope.drawGrid(chartWidth: Float, chartHeight: Float, dividerCol
         )
     }
 }
+INNER_EOF

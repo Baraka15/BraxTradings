@@ -1,3 +1,5 @@
+#!/bin/bash
+cat << 'INNER_EOF' > app/src/main/java/com/example/ui/screens/CommunityScreen.kt
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
@@ -174,3 +176,4 @@ private fun PostCard(post: CommunityPost) {
         }
     }
 }
+INNER_EOF
