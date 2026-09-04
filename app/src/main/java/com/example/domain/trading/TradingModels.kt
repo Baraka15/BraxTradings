@@ -141,3 +141,28 @@ data class DrawingShape(
     val startPrice: Double = 0.0,
     val endPrice: Double = 0.0
 )
+
+enum class WorkspaceLayoutMode(val id: Int, val label: String, val panesCount: Int, val description: String) {
+    SINGLE(1, "1x1", 1, "Single Chart"),
+    SPLIT_HORIZONTAL(2, "1x2", 2, "Split Horizontal"),
+    SPLIT_VERTICAL(3, "2x1", 2, "Split Vertical"),
+    GRID_4(4, "2x2", 4, "Grid 4-Pane")
+}
+
+data class ChartPaneConfig(
+    val id: Int,
+    val symbol: String,
+    val timeframe: Timeframe,
+    val indicators: Set<TechnicalIndicator> = setOf(TechnicalIndicator.EMA_21, TechnicalIndicator.VOLUME),
+    val chartStyle: ChartStyle = ChartStyle.CANDLES
+)
+
+data class CrosshairSyncState(
+    val isEnabled: Boolean = false,
+    val active: Boolean = false,
+    val sourcePaneId: Int = -1,
+    val timestamp: Long = 0L,
+    val normalizedX: Float = -1f,
+    val price: Double = 0.0
+)
+

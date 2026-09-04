@@ -48,7 +48,7 @@ fun WatchlistScreen(
                 Icon(Icons.Default.Menu, contentDescription = "Menu", tint = MaterialTheme.colorScheme.onBackground)
                 Spacer(modifier = Modifier.width(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Market Watch", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    Text("Market Watch", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onBackground)
                     Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Select Watchlist", tint = MaterialTheme.colorScheme.onBackground)
                 }
             }

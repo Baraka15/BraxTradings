@@ -1,3 +1,6 @@
+#!/bin/bash
+
+cat << 'INNER_EOF' > app/src/main/java/com/example/ui/screens/ChartScreen.kt
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
@@ -5,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.*
@@ -12,10 +16,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.domain.trading.Timeframe
 import com.example.ui.TradingViewModel
 import com.example.ui.components.AdvancedChartCanvas
 import com.example.ui.components.OrderBookComponent
@@ -92,10 +96,10 @@ fun ChartScreen(
                             .horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Timeframe.entries.forEach { tf ->
-                            val isSelected = timeframe == tf
+                        listOf("1m", "5m", "15m", "1h", "4h", "D", "W").forEach { tf ->
+                            val isSelected = timeframe.label == tf
                             Text(
-                                text = tf.label,
+                                text = tf,
                                 color = if (isSelected) TvBlue else MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
@@ -153,6 +157,7 @@ fun ChartScreen(
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
                                 Box(modifier = Modifier.weight(1f)) {
+                                    // Secondary pane with same candles or alternate
                                     AdvancedChartCanvas(
                                         candles = candles,
                                         isDrawingMode = false,
@@ -217,6 +222,7 @@ fun ChartScreen(
                 VerticalDivider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
                 
                 Row(modifier = Modifier.width(360.dp).fillMaxHeight()) {
+                    // Market Watch or Order Book Component Content
                     Box(modifier = Modifier.weight(1f)) {
                         if (rightSidebarTab == 0) {
                             WatchlistScreen(viewModel = viewModel)
@@ -227,6 +233,7 @@ fun ChartScreen(
                     
                     VerticalDivider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
                     
+                    // Far-Right TradingView Navigation Rail
                     Column(
                         modifier = Modifier
                             .width(52.dp)
@@ -258,3 +265,4 @@ fun ChartScreen(
         }
     }
 }
+INNER_EOF

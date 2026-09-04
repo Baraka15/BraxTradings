@@ -237,6 +237,7 @@ fun AdvancedChartCanvas(
                     textSize = 28f
                     isAntiAlias = true
                     textAlign = android.graphics.Paint.Align.LEFT
+                    typeface = android.graphics.Typeface.MONOSPACE
                 }
                 drawContext.canvas.nativeCanvas.drawText(
                     String.format(Locale.US, "%.3f", currentPrice),
